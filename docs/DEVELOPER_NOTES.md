@@ -9,7 +9,7 @@ actually been verified vs. what hasn't, and the known open work.
 
 ```
 gui_app/                  Native macOS SwiftUI app (v1.5)
-  Sources/*.swift         UI + logic (11 files)
+  Sources/*.swift         UI + logic (12 files)
   WolfCare.sh             The bash scanner, bundled as the backend
   build_app.sh            Compiles + assembles + ad-hoc signs the .app
   Info.plist              Bundle metadata
@@ -104,17 +104,32 @@ current design:
 
 ## Testing status — read this before trusting anything
 
-Testing happened in a Linux sandbox, so anything macOS-specific
-could not be executed. Be skeptical accordingly.
+Early testing happened in a Linux sandbox with no macOS/Swift
+toolchain; a later session ran with a real Mac (Apple Silicon, Swift
+6.1, Xcode CLT) and used it to close out everything that sandbox
+couldn't touch. Be skeptical of anything not listed below as verified.
 
 ### Verified end-to-end (real tests, real detections)
 
-- **ZIP deep inspection** — clean archive → no match; injected
+- **ZIP/RAR deep inspection** — clean archive → no match; injected
   payload → correctly detected; 250-file archive → capped without
   hanging; temp dirs cleaned up; full pipeline runs on both the GUI
   backend and a propagated CLI script
-- **RAR deep inspection** — same battery, using real `.rar` archives
-  built with the actual `rar` compressor
+- **7z/tar/tar.gz/.tgz/tar.bz2/.tbz2/tar.xz/.txz/gz/bz2/xz/iso deep
+  inspection** (real hardware) — all nine additional `unar`-handled
+  formats verified with real fixtures and a planted malicious hash,
+  in both the real-`timeout`-binary code path and the pure-bash
+  fallback path (see the `timeout` bug below - this matters)
+- **DMG deep inspection** (real hardware, `hdiutil`) — nested
+  `.pkg`/`.dmg` container hashing and `.app` main-executable hashing
+  (via `PlistBuddy`/`CFBundleExecutable`) both verified with real
+  `hdiutil create` fixtures; mount count before/after confirmed equal
+  (no leaked volumes) across both a clean run and a detection run
+- **PKG deep inspection** (real hardware, `pkgutil`) — payload
+  (gzip+cpio) hash matching verified with a real `pkgbuild` fixture;
+  the informational `SUSPICIOUS_SCRIPT` signal verified against a real
+  postinstall script disabling Gatekeeper and stripping the quarantine
+  attribute
 - **ClamAV integration** — tested against a faithful stub
   replicating real `clamscan` I/O (flags, output format, exit codes),
   then confirmed on real hardware with a genuine EICAR detection
@@ -122,17 +137,25 @@ could not be executed. Be skeptical accordingly.
   the quarantine folder are correctly pruned
 - **Config round-trip** — Swift-written config verified to parse
   correctly via bash `source`
+- **Keychain round-trip** (real hardware, via `security` CLI) —
+  legacy-plaintext migration, save, key rotation, and clearing a key
+  all verified against a real (throwaway) Keychain entry; GUI and CLI
+  confirmed to resolve to the same Keychain service name
+- **Scheduled-scan crontab logic** (real hardware) — add
+  daily/weekly, replace, and remove-all verified against a real
+  (backed-up-and-restored) crontab using a marker script path; also
+  confirmed `crontab -` fails loudly (non-zero exit, old crontab left
+  untouched) on malformed input rather than silently doing nothing
+- **GUI build** — compiles clean with zero warnings as a universal
+  binary (arm64 + x86_64), ad-hoc signed
 
-### NOT verified — needs testing on real hardware
+### Still not verified
 
-- **DMG deep inspection** (`hdiutil`) — unavailable in sandbox
-- **PKG deep inspection** (`pkgutil`) — unavailable in sandbox
-- **All Swift code** — no Swift toolchain in sandbox. Three genuine
-  bugs were found only when compiled/run on a real Mac (see below).
-
-To verify DMG/PKG: `hdiutil create` and `pkgbuild` can build real
-test cases containing a payload whose hash you've added to
-`KNOWN_BAD_SHA256`.
+- Full Disk Access live-check UX (`FullDiskAccess.swift`) and the
+  Scheduled Scans tab's SwiftUI layer haven't been clicked through in
+  a running app window - the underlying mechanisms they call
+  (TCC probe, crontab read/write) are verified directly per above, but
+  the view layer itself hasn't been exercised interactively.
 
 ---
 
@@ -166,34 +189,58 @@ printed raw directories. Correct pattern:
 `find PATH \( -path EXCLUDE -prune \) -o \( -type f ... -print \)`.
 Test any change to this empirically; it's easy to get wrong.
 
+**`timeout` isn't part of stock macOS.** The single biggest finding
+from real-hardware testing: `timeout` is a GNU coreutils command, not
+BSD userland, so it doesn't exist on a Mac without Homebrew coreutils
+installed. Every deep-inspection call site (`unzip`, `hdiutil`,
+`pkgutil`, `unar`) used it directly - on a real end-user machine that
+was silently "command not found", meaning deep inspection had likely
+never actually run despite the earlier sandbox testing showing it
+working (Linux ships `timeout` standard, which is exactly how this
+got missed). Fixed with a `run_timeout()` wrapper that prefers a real
+`timeout`/`gtimeout` binary and falls back to a pure-bash equivalent
+(same exit-code-124 convention either way) - verified in both code
+paths. If you add a new external/slow call, use `run_timeout`, not
+`timeout` directly.
+
+**clamscan had no timeout at all.** Root cause of scans getting stuck
+mid-run and needing a manual `pkill -f clamscan` - every *other* slow
+operation in the script had one, this was the exception. Now bounded
+at 30 minutes via `run_timeout`, with a 45-minute GUI-side watchdog as
+a second safety net, and cleanup sends `SIGKILL` (`-9`) rather than
+the default `SIGTERM` since the whole point is recovering something
+already unresponsive.
+
+**Crontab writes weren't checked for success.** `crontab -` can fail
+(verified: bad input → non-zero exit, old crontab left untouched) but
+`CronStore.swift` showed the "scheduled" success message unconditionally.
+Now checks `terminationStatus` and surfaces `security`/`crontab`'s own
+stderr on failure instead.
+
 ---
 
 ## Open work
-
-**Multi-format archive support (in progress, not started in code).**
-`unar` was verified to handle 7z, tar, tar.gz, tar.bz2, tar.xz, gz,
-bz2, xz, and iso — all nine tested working through the same interface
-already used for RAR. The remaining work is a generic handler routing
-these through `inspect_rar_contents`-style logic, plus adding the
-extensions to the `find` patterns in `run_scan()` (three places, all
-three scripts). Note `unrar` is NOT an option — removed from Homebrew
-over licensing, and the fallback cask is disabled as of 2026-09-01.
-
-**Keychain for API keys.** Currently plaintext in
-`~/.local/share/*_quarantine/.wolfcare_config` (chmod 600). Moving to
-Keychain via the Security framework would be better hygiene. Deferred
-previously because a Keychain bug fails silently rather than loudly —
-worth doing as its own focused change with real testing.
-
-**GUI Scheduled Scans tab.** Built and wired to `crontab`, but never
-clicked through by a user. Lower risk than it sounds (same patterns
-as the tested tabs) but genuinely unverified.
 
 **Sidebar logo.** Attempted twice, removed both times — first
 invisible, then overlapping the nav text. The asset has a black
 background that resists automated cutout because the wolf silhouette
 and background are both near-black and intertwined. Would need a
 manually prepared transparent PNG.
+
+**Interactive click-through of the Full Disk Access notice and
+Scheduled Scans tab.** Both were verified at the mechanism level (TCC
+probe, crontab read/write - see Testing status) but not by actually
+clicking around a running app window. Lower risk than it sounds given
+that level of verification, but still genuinely unclicked.
+
+### Resolved this session (kept here briefly for context, not re-open)
+
+Multi-format archive support, Keychain-backed API keys, and the
+Scheduled Scans tab's underlying crontab logic - all previously listed
+here as open work - are done; see Testing status above for what was
+verified and "Bugs found the hard way" for what broke along the way
+(notably the `timeout` portability bug, found while doing the archive
+work).
 
 ---
 
@@ -209,6 +256,15 @@ Ad-hoc signing is **mandatory**, not optional — Apple Silicon refuses
 to run any compiled Mach-O with no signature at all. This is separate
 from (and stricter than) the "unidentified developer" Gatekeeper
 warning. `build_app.sh` handles it.
+
+The build produces a universal binary (arm64 + x86_64 via two
+`swiftc -target` passes + `lipo -create`), so one build serves both
+Intel and Apple Silicon Macs. Deployment target is 13.0, matching
+`Info.plist`'s `LSMinimumSystemVersion` - `NavigationSplitView`
+(`ContentView.swift`) requires macOS 13+, and SwiftUI itself has a
+hard floor of 10.15, so this can't go lower without dropping SwiftUI
+for AppKit. The `cli_scripts/` have no such floor - they're plain
+bash and run on essentially any macOS version.
 
 End users don't need Xcode — distribute the compiled `.app` in a DMG
 and Swift runtime libs ship with macOS. Only the build machine needs

@@ -28,8 +28,9 @@ final class CronStore: ObservableObject {
             return
         }
         let line = "0 9 * * * \"\(scriptPath)\" --auto --target=1"
-        writeCrontab(replacingLinesContaining: scriptPath, adding: line)
-        message = "Daily scan scheduled for 9:00 AM"
+        if writeCrontab(replacingLinesContaining: scriptPath, adding: line) {
+            message = "Daily scan scheduled for 9:00 AM"
+        }
     }
 
     func addWeekly() {
@@ -38,17 +39,25 @@ final class CronStore: ObservableObject {
             return
         }
         let line = "0 9 * * 0 \"\(scriptPath)\" --auto --target=3"
-        writeCrontab(replacingLinesContaining: scriptPath, adding: line)
-        message = "Weekly scan scheduled for Sundays, 9:00 AM"
+        if writeCrontab(replacingLinesContaining: scriptPath, adding: line) {
+            message = "Weekly scan scheduled for Sundays, 9:00 AM"
+        }
     }
 
     func removeAll() {
         guard let scriptPath = scriptPath else { return }
-        writeCrontab(replacingLinesContaining: scriptPath, adding: nil)
-        message = "Scheduled scans removed"
+        if writeCrontab(replacingLinesContaining: scriptPath, adding: nil) {
+            message = "Scheduled scans removed"
+        }
     }
 
-    private func writeCrontab(replacingLinesContaining marker: String, adding newLine: String?) {
+    /// Returns whether the write actually succeeded. `crontab -` rejects
+    /// malformed input (verified: it leaves the existing crontab
+    /// untouched and exits non-zero rather than installing anything) -
+    /// without checking that, a failed write here would still show the
+    /// "scheduled" success message despite nothing having changed.
+    @discardableResult
+    private func writeCrontab(replacingLinesContaining marker: String, adding newLine: String?) -> Bool {
         let existing = runCrontab(args: ["-l"]) ?? ""
         var lines = existing
             .split(separator: "\n")
@@ -63,16 +72,27 @@ final class CronStore: ObservableObject {
         task.executableURL = URL(fileURLWithPath: "/usr/bin/crontab")
         task.arguments = ["-"]
         let inPipe = Pipe()
+        let errPipe = Pipe()
         task.standardInput = inPipe
+        task.standardError = errPipe
+        var succeeded = false
         do {
             try task.run()
             inPipe.fileHandleForWriting.write(newContent.data(using: .utf8) ?? Data())
             inPipe.fileHandleForWriting.closeFile()
+            let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
             task.waitUntilExit()
+            if task.terminationStatus == 0 {
+                succeeded = true
+            } else {
+                let errText = String(data: errData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                message = "Could not update crontab" + (errText?.isEmpty == false ? ": \(errText!)" : ".")
+            }
         } catch {
             message = "Could not update crontab: \(error.localizedDescription)"
         }
         refresh()
+        return succeeded
     }
 
     private func runCrontab(args: [String]) -> String? {

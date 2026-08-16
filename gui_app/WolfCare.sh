@@ -81,14 +81,53 @@ touch "$CONFIG_FILE"
 # shellcheck disable=SC1090
 source "$CONFIG_FILE" 2>/dev/null
 
+# ============================================================
+# API keys live in the Keychain, not the plaintext config file, via the
+# `security` CLI - always present on macOS, no extra dependency, and
+# used identically by every consumer (both CLI scripts, the GUI's
+# bundled backend, and the GUI's own Settings screen) so a key saved in
+# one place is always visible to the others. Errors from `security` are
+# surfaced to the user rather than swallowed - a silent Keychain
+# failure was the reason this was deferred previously.
+# ============================================================
+KEYCHAIN_SERVICE="${CONFIG_FILE##*/}"
+
+keychain_get() {
+    security find-generic-password -a "$1" -s "$KEYCHAIN_SERVICE" -w 2>/dev/null
+}
+
+keychain_set() {
+    local account="$1" value="$2"
+    if [ -z "$value" ]; then
+        security delete-generic-password -a "$account" -s "$KEYCHAIN_SERVICE" >/dev/null 2>&1
+        return 0
+    fi
+    local err
+    err=$(security add-generic-password -a "$account" -s "$KEYCHAIN_SERVICE" -w "$value" -U 2>&1 >/dev/null)
+    if [ -n "$err" ]; then
+        echo "[!] Could not save '$account' to Keychain: $err" >&2
+        return 1
+    fi
+    return 0
+}
+
+# One-time migration from the old plaintext config, if present.
+_legacy_vt_key="$VT_API_KEY"
+_legacy_mb_key="$MB_API_KEY"
+VT_API_KEY=$(keychain_get virustotal_api_key)
+MB_API_KEY=$(keychain_get malwarebazaar_api_key)
+[ -n "$_legacy_vt_key" ] && [ -z "$VT_API_KEY" ] && keychain_set virustotal_api_key "$_legacy_vt_key" && VT_API_KEY="$_legacy_vt_key"
+[ -n "$_legacy_mb_key" ] && [ -z "$MB_API_KEY" ] && keychain_set malwarebazaar_api_key "$_legacy_mb_key" && MB_API_KEY="$_legacy_mb_key"
+unset _legacy_vt_key _legacy_mb_key
+
 save_config() {
     cat > "$CONFIG_FILE" << EOF
 THEME="$THEME"
-VT_API_KEY="$VT_API_KEY"
-MB_API_KEY="$MB_API_KEY"
 ALERT_EMAIL="$ALERT_EMAIL"
 EOF
     chmod 600 "$CONFIG_FILE"
+    keychain_set virustotal_api_key "$VT_API_KEY"
+    keychain_set malwarebazaar_api_key "$MB_API_KEY"
 }
 
 # ---------- Step 5: Theme colors ----------
