@@ -1,0 +1,206 @@
+import SwiftUI
+import AppKit
+
+struct ScanView: View {
+    @ObservedObject var engine: ScanEngine
+    @State private var selectedTarget: ScanTarget = .downloads
+    @State private var customPath: String = ""
+    @State private var showingFullSystemConfirm = false
+    @State private var hasFullDiskAccess: Bool = FullDiskAccess.isGranted()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Scan")
+                .font(.largeTitle.bold())
+
+            Text("Checks known-hash databases only. Not a substitute for macOS's built-in protections or a dedicated antivirus product.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if hasFullDiskAccess {
+                Label("Full Disk Access is enabled - scans can see protected folders.", systemImage: "checkmark.shield")
+                    .font(.caption)
+                    .foregroundStyle(.green)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                HStack(alignment: .top, spacing: 8) {
+                    Label("Full Disk Access is recommended for complete results - without it, scans may silently skip protected folders.", systemImage: "exclamationmark.shield")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button("Open Settings…") {
+                        FullDiskAccess.openPrivacySettings()
+                    }
+                    .font(.caption)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(ScanTarget.allCases, id: \.self) { target in
+                    Button {
+                        selectedTarget = target
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: selectedTarget == target ? "largecircle.fill.circle" : "circle")
+                                .foregroundStyle(selectedTarget == target ? Color.accentColor : Color.secondary)
+                            Text(target.label)
+                                .foregroundStyle(.primary)
+                            Spacer()
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .disabled(engine.isScanning)
+
+            if selectedTarget == .customDirectory {
+                HStack {
+                    TextField("Folder path", text: $customPath)
+                        .textFieldStyle(.roundedBorder)
+                    Button("Choose…") { chooseFolder() }
+                }
+            }
+
+            HStack {
+                if engine.isScanning {
+                    Button(role: .destructive) {
+                        engine.cancelScan()
+                    } label: {
+                        Label("Cancel Scan", systemImage: "xmark.circle")
+                    }
+                } else {
+                    Button {
+                        if selectedTarget == .fullSystem {
+                            showingFullSystemConfirm = true
+                        } else {
+                            engine.startScan(target: selectedTarget, customPath: customPath)
+                        }
+                    } label: {
+                        Label("Start Scan", systemImage: "play.fill")
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+
+                if engine.isScanning {
+                    ProgressView()
+                        .controlSize(.small)
+                        .padding(.leading, 4)
+                }
+            }
+
+            if let error = engine.lastError {
+                Label(error, systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.red)
+                    .font(.caption)
+            }
+
+            if let status = engine.statusMessage {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text(status)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if engine.isScanning || engine.totalFiles > 0 {
+                VStack(alignment: .leading, spacing: 4) {
+                    ProgressView(
+                        value: Double(engine.scannedCount),
+                        total: Double(max(engine.totalFiles, 1))
+                    )
+                    Text("\(engine.scannedCount) / \(engine.totalFiles) files")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Table(engine.results) {
+                TableColumn("File", value: \.name)
+                TableColumn("Status") { result in
+                    statusBadge(result.status)
+                }
+                .width(120)
+                TableColumn("Size (KB)") { result in
+                    Text("\(result.sizeKB)")
+                }
+                .width(80)
+                TableColumn("Detail", value: \.detail)
+            }
+            .frame(minHeight: 240)
+
+            if let summary = engine.summary {
+                summaryCard(summary)
+                Text("\"Clean\" means not found in these specific databases — not a guarantee this system is free of malware.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding()
+        .confirmationDialog(
+            "Full system scan can take a long time. Continue?",
+            isPresented: $showingFullSystemConfirm
+        ) {
+            Button("Scan Entire System", role: .destructive) {
+                engine.startScan(target: .fullSystem)
+            }
+            Button("Cancel", role: .cancel) {}
+        }
+        .onAppear { hasFullDiskAccess = FullDiskAccess.isGranted() }
+        // Granting Full Disk Access happens in System Settings, outside
+        // the app - re-check whenever the user comes back to it instead
+        // of leaving the stale "not granted" warning up after they've
+        // already approved it.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            hasFullDiskAccess = FullDiskAccess.isGranted()
+        }
+    }
+
+    private func chooseFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        if panel.runModal() == .OK, let url = panel.url {
+            customPath = url.path
+        }
+    }
+
+    @ViewBuilder
+    private func statusBadge(_ status: FileStatus) -> some View {
+        switch status {
+        case .malicious:
+            Label("Malicious", systemImage: "exclamationmark.triangle.fill")
+                .foregroundStyle(.red)
+        case .verified:
+            Label("Verified", systemImage: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+        case .unverified:
+            Label("Unverified", systemImage: "questionmark.circle.fill")
+                .foregroundStyle(.yellow)
+        }
+    }
+
+    @ViewBuilder
+    private func summaryCard(_ summary: ScanSummary) -> some View {
+        HStack(spacing: 32) {
+            statPill("Scanned", "\(summary.scanned)", .primary)
+            statPill("Threats", "\(summary.detected)", summary.detected > 0 ? .red : .secondary)
+            statPill("Unverified", "\(summary.unverified)", .yellow)
+            statPill("Quarantined", "\(summary.quarantined)", .secondary)
+        }
+        .padding()
+        .frame(maxWidth: .infinity)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func statPill(_ label: String, _ value: String, _ color: Color) -> some View {
+        VStack(spacing: 2) {
+            Text(value).font(.title2.bold()).foregroundStyle(color)
+            Text(label).font(.caption).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
