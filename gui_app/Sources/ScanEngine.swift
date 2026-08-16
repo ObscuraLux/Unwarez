@@ -14,6 +14,7 @@ final class ScanEngine: ObservableObject {
     @Published var summary: ScanSummary?
     @Published var lastError: String?
     @Published var statusMessage: String?
+    @Published var showCompletionAlert: Bool = false
 
     private var process: Process?
     private var lineBuffer = Data()
@@ -53,6 +54,7 @@ final class ScanEngine: ObservableObject {
         scannedCount = 0
         summary = nil
         lastError = nil
+        showCompletionAlert = false
         statusMessage = "Starting…"
         lineBuffer = Data()
         isScanning = true
@@ -61,7 +63,7 @@ final class ScanEngine: ObservableObject {
         task.executableURL = URL(fileURLWithPath: "/bin/bash")
 
         var args = [scriptPath, "--gui", "--target=\(target.rawValue)"]
-        if target == .customDirectory, !customPath.isEmpty {
+        if (target == .customDirectory || target == .customFile), !customPath.isEmpty {
             args.append("--path=\(customPath)")
         }
         task.arguments = args
@@ -220,6 +222,7 @@ final class ScanEngine: ObservableObject {
                     quarantined: Int(fields[5]) ?? 0
                 )
                 self.statusMessage = nil
+                self.showCompletionAlert = true
             default:
                 break
             }

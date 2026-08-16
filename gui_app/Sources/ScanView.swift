@@ -61,6 +61,12 @@ struct ScanView: View {
                         .textFieldStyle(.roundedBorder)
                     Button("Choose…") { chooseFolder() }
                 }
+            } else if selectedTarget == .customFile {
+                HStack {
+                    TextField("File path", text: $customPath)
+                        .textFieldStyle(.roundedBorder)
+                    Button("Choose…") { chooseFile() }
+                }
             }
 
             HStack {
@@ -148,6 +154,11 @@ struct ScanView: View {
             }
             Button("Cancel", role: .cancel) {}
         }
+        .alert("Scan Complete", isPresented: $engine.showCompletionAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Remember to scan all files before use - this only checks the files included in this scan.")
+        }
         .onAppear { hasFullDiskAccess = FullDiskAccess.isGranted() }
         // Granting Full Disk Access happens in System Settings, outside
         // the app - re-check whenever the user comes back to it instead
@@ -162,6 +173,16 @@ struct ScanView: View {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        if panel.runModal() == .OK, let url = panel.url {
+            customPath = url.path
+        }
+    }
+
+    private func chooseFile() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
         panel.allowsMultipleSelection = false
         if panel.runModal() == .OK, let url = panel.url {
             customPath = url.path

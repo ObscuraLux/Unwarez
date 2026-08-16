@@ -4,6 +4,7 @@ import AppKit
 enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
     case scan = "Scan"
     case quarantine = "Quarantine"
+    case logs = "Logs"
     case settings = "Settings"
     case schedule = "Scheduled Scans"
 
@@ -13,6 +14,7 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .scan: return "magnifyingglass.circle"
         case .quarantine: return "lock.shield"
+        case .logs: return "doc.text.magnifyingglass"
         case .settings: return "gearshape"
         case .schedule: return "clock"
         }
@@ -57,6 +59,8 @@ struct ContentView: View {
                     ScanView(engine: scanEngine)
                 case .quarantine:
                     QuarantineView()
+                case .logs:
+                    LogsView()
                 case .settings:
                     SettingsView()
                 case .schedule:

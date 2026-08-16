@@ -27,6 +27,7 @@ enum ScanTarget: Int, CaseIterable {
     case desktop = 2
     case home = 3
     case customDirectory = 4
+    case customFile = 5
     case fullSystem = 6
 
     var label: String {
@@ -35,6 +36,7 @@ enum ScanTarget: Int, CaseIterable {
         case .desktop: return "Desktop folder"
         case .home: return "Entire home directory"
         case .customDirectory: return "Custom directory"
+        case .customFile: return "Individual file"
         case .fullSystem: return "Full system scan"
         }
     }
