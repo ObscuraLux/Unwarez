@@ -95,7 +95,7 @@ struct QuarantineView: View {
             }
         } message: {
             if let entry = pendingMarkSafe {
-                Text("\((entry.originalPath as NSString).lastPathComponent) will no longer be flagged by future scans, but the quarantined copy is kept - not deleted. Only do this for files you've personally verified, like a PUP (potentially unwanted, but not actually malicious) you've decided to keep.")
+                Text("\((entry.originalPath as NSString).lastPathComponent) will be removed from this list, but the quarantined copy is kept - not deleted. It'll still be scanned and evaluated normally the next time you scan it - this doesn't exempt it from future detection. Only do this for files you've personally verified, like a PUP (potentially unwanted, but not necessarily malicious) you've decided to keep.")
             }
         }
     }

@@ -26,9 +26,6 @@ final class QuarantineStore: ObservableObject {
     private var filesDir: String {
         quarantineDir + "/files"
     }
-    private var allowlistPath: String {
-        quarantineDir + "/allowlist.txt"
-    }
 
     init() {
         load()
@@ -82,31 +79,17 @@ final class QuarantineStore: ObservableObject {
     }
 
     /// Removes an entry from the quarantine list WITHOUT deleting the
-    /// quarantined copy, and - unlike just deleting the manifest line -
-    /// adds the hash to a persistent allowlist the bash backend checks
-    /// before every other detection layer, so this exact file is never
-    /// re-flagged on a future scan. For a confirmed false positive
-    /// (e.g. a PUP - potentially unwanted, but not actually malicious).
+    /// quarantined copy - unlike Delete, which removes both. Does NOT
+    /// exempt the file from future detection in any way: a scan that
+    /// sees it again (the quarantined copy, or the original if it's
+    /// still at its original path) evaluates it completely fresh, same
+    /// as any other file. This is deliberate - it's a "clear this off
+    /// my list for now" action, not a permanent "never flag this again"
+    /// judgment call.
     func markSafe(_ entry: QuarantineEntry) {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        let label = "marked safe by user on \(formatter.string(from: Date())) (was: \(entry.reason))"
-        let line = "\(entry.sha256)|\(label)\n"
-        do {
-            try FileManager.default.createDirectory(atPath: quarantineDir, withIntermediateDirectories: true)
-            if let handle = FileHandle(forWritingAtPath: allowlistPath) {
-                handle.seekToEndOfFile()
-                handle.write(line.data(using: .utf8) ?? Data())
-                handle.closeFile()
-            } else {
-                try line.write(toFile: allowlistPath, atomically: true, encoding: .utf8)
-            }
-            removeFromManifest(entry)
-            load()
-            message = "Marked safe - won't be flagged again, and the quarantined copy was kept (not deleted)."
-        } catch {
-            message = "Could not update the allowlist: \(error.localizedDescription)"
-        }
+        removeFromManifest(entry)
+        load()
+        message = "Removed from the quarantine list. The quarantined copy was kept (not deleted), and it'll be evaluated normally on any future scan."
     }
 
     func delete(_ entry: QuarantineEntry) {
