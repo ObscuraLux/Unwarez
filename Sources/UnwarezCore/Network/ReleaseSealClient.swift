@@ -62,7 +62,7 @@ public actor ReleaseSealClient {
 
         // Offline or download failed - fall back to the bundled seed
         // database rather than running with no ReleaseSeal coverage.
-        if let seedURL = Bundle.module.url(forResource: "ReleaseSealDatabase", withExtension: "json"),
+        if let seedURL = UnwarezPaths.bundledResourceURL(named: "ReleaseSealDatabase", withExtension: "json"),
            let seedData = try? Data(contentsOf: seedURL),
            let parsed = try? JSONDecoder().decode(ReleaseSealDB.self, from: seedData) {
             install(parsed)

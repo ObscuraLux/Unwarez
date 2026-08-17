@@ -69,6 +69,17 @@ cp "$PACKAGING_DIR/AppIcon.icns" "$BUILD_DIR/$BUNDLE_NAME/Contents/Resources/App
 # UnwarezCore's SwiftPM resource bundle (ThreatIntel.json +
 # ReleaseSealDatabase.json) - identical content per architecture, so
 # either build directory's copy is fine.
+#
+# Goes in Contents/Resources/, the correct/standard location for a real
+# .app - NOT the bundle root. SwiftPM's generated Bundle.module accessor
+# looks relative to Bundle.main.bundleURL (the bundle root) with a
+# hardcoded-at-build-time fallback into this machine's own .build/
+# directory, both wrong for a packaged app on any other machine - and
+# codesign refuses to seal anything placed at the bundle root anyway
+# ("unsealed contents present in the bundle root"). UnwarezPaths.
+# bundledResourceURL() is what actually finds this at runtime; it checks
+# Contents/Resources/ first and only falls back to Bundle.module for
+# swift run/test dev contexts. See its doc comment for the full story.
 RESOURCE_BUNDLE=$(find "$ARM_DIR" -maxdepth 1 -iname "*_UnwarezCore.bundle" | head -1)
 if [ -z "$RESOURCE_BUNDLE" ]; then
     echo "Could not find UnwarezCore's resource bundle in $ARM_DIR" >&2

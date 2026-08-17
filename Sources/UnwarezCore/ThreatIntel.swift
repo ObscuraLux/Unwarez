@@ -25,7 +25,7 @@ public struct ThreatIntelDatabase: Codable, Sendable {
 
 public enum ThreatIntel {
     public static let database: ThreatIntelDatabase = {
-        guard let url = Bundle.module.url(forResource: "ThreatIntel", withExtension: "json"),
+        guard let url = UnwarezPaths.bundledResourceURL(named: "ThreatIntel", withExtension: "json"),
               let data = try? Data(contentsOf: url),
               let db = try? JSONDecoder().decode(ThreatIntelDatabase.self, from: data) else {
             return ThreatIntelDatabase(sha256: [], md5: [], launchdLabels: [], launchdPaths: [], stagingApps: [], ips: [], domains: [])

@@ -44,4 +44,38 @@ public enum UnwarezPaths {
         }
         return created
     }
+
+    /// Locates a bundled resource (ThreatIntel.json, ReleaseSealDatabase.json)
+    /// without relying solely on SwiftPM's generated `Bundle.module`.
+    ///
+    /// `Bundle.module`'s generated accessor resolves relative to
+    /// `Bundle.main.bundleURL` (a real .app's *root*, sibling to
+    /// `Contents/`) with a hardcoded-at-build-time absolute fallback into
+    /// this machine's own `.build/` directory - both fail on every other
+    /// machine once packaged into a real .app, where `codesign --deep`
+    /// refuses to seal anything outside `Contents/` in the first place
+    /// (confirmed: placing the resource bundle at the bundle root, even
+    /// as a symlink, makes codesign fail with "unsealed contents present
+    /// in the bundle root"). The result was `Bundle.module`'s lazy
+    /// initializer calling `fatalError()` the instant any packaged build
+    /// touched it - crashing on the very first scan.
+    ///
+    /// This checks the *correct*, signable location for a real .app
+    /// (`Bundle.main.resourceURL`, i.e. `Contents/Resources/`, where
+    /// `build_app.sh` actually copies the resource bundle) first, and
+    /// only falls back to `Bundle.module` for `swift run`/`swift test`
+    /// dev contexts, where there's no real .app wrapper and the
+    /// generated accessor resolves correctly on its own.
+    public static func bundledResourceURL(named name: String, withExtension ext: String) -> URL? {
+        let bundleDirName = "Unwarez_UnwarezCore.bundle"
+        if let resourceURL = Bundle.main.resourceURL {
+            let candidate = resourceURL
+                .appendingPathComponent(bundleDirName)
+                .appendingPathComponent("\(name).\(ext)")
+            if FileManager.default.fileExists(atPath: candidate.path) {
+                return candidate
+            }
+        }
+        return Bundle.module.url(forResource: name, withExtension: ext)
+    }
 }
