@@ -72,16 +72,17 @@ struct ContentView: View {
             }
             .frame(minWidth: 500, minHeight: 400)
         }
-        .overlay(alignment: .topTrailing) {
-            logoBadge
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                logoBadge
+            }
         }
     }
 
     // Bundled as a resource by build_app.sh, same way as icon.icns.
-    // Non-interactive: a past sidebar logo attempt silently swallowed
-    // clicks meant for the nav underneath because a decorative image
-    // is clickable across its whole frame regardless of visual
-    // opacity/content - .allowsHitTesting(false) avoids repeating that.
+    // Placed via .toolbar/.primaryAction rather than an overlay, so it
+    // renders in the window's title bar itself (trailing side) instead
+    // of floating over the content below it.
     @ViewBuilder
     private var logoBadge: some View {
         if let path = Bundle.main.path(forResource: "wolf_logo", ofType: "png"),
@@ -89,10 +90,7 @@ struct ContentView: View {
             Image(nsImage: nsImage)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
-                .frame(height: 32)
-                .padding(.top, 10)
-                .padding(.trailing, 14)
-                .allowsHitTesting(false)
+                .frame(height: 22)
         }
     }
 }
