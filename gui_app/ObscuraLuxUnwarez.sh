@@ -1,5 +1,5 @@
 #!/bin/bash
-# ObscuraLux Unwarez Malware Scanner v1.1
+# ObscuraLux Unwarez v1.1
 # Local file scanner with hash reputation checks (ReleaseSeal + VirusTotal),
 # CSV/PDF export, scheduled scans, email alerts, and theme support.
 # Runs entirely against your own files on your own machine.
@@ -976,7 +976,7 @@ banner() {
     echo -e "${CYAN}                  :::/      \\:'${NC}"
     echo ""
     echo "========================================"
-    echo "   ObscuraLux Unwarez Malware Scanner v1.1"
+    echo "   ObscuraLux Unwarez v1.1"
     echo "========================================"
 }
 

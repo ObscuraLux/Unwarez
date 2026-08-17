@@ -17,11 +17,11 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_DIR="$SCRIPT_DIR/build"
-BUNDLE_NAME="ObscuraLux Unwarez Malware Scanner.app"
+BUNDLE_NAME="ObscuraLux Unwarez.app"
 APP_PATH="$BUILD_DIR/$BUNDLE_NAME"
 
-VOLUME_NAME="ObscuraLux Unwarez Malware Scanner v1.6.3"
-DMG_NAME="ObscuraLux Unwarez Malware Scanner v1.6.3.dmg"
+VOLUME_NAME="ObscuraLux Unwarez v1.6.3"
+DMG_NAME="ObscuraLux Unwarez v1.6.3.dmg"
 FINAL_DMG="$BUILD_DIR/$DMG_NAME"
 STAGING_DIR="$BUILD_DIR/.dmg_staging"
 SETTINGS_FILE="$BUILD_DIR/.dmgbuild_settings.py"

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds ObscuraLux Unwarez Malware Scanner.app from the Swift sources
+# Builds ObscuraLux Unwarez.app from the Swift sources
 # in Sources/, bundling the tested bash scanner (ObscuraLuxUnwarez.sh)
 # as its backend.
 set -e
@@ -9,7 +9,7 @@ APP_NAME="ObscuraLuxUnwarezGUI"
 # Info.plist carry the version (shown in the title bar and menu bar),
 # so bumping a version doesn't require renaming the installed .app or
 # breaking a Dock/Applications shortcut to it.
-BUNDLE_NAME="ObscuraLux Unwarez Malware Scanner.app"
+BUNDLE_NAME="ObscuraLux Unwarez.app"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_DIR="$SCRIPT_DIR/build"
 
@@ -48,6 +48,7 @@ rm -f "$BUILD_DIR/arm64-bin" "$BUILD_DIR/x86_64-bin"
 
 echo "[4/5] Assembling app bundle..."
 cp "$SCRIPT_DIR/Info.plist" "$BUILD_DIR/$BUNDLE_NAME/Contents/Info.plist"
+cp "$SCRIPT_DIR/AppIcon.icns" "$BUILD_DIR/$BUNDLE_NAME/Contents/Resources/AppIcon.icns"
 cp "$SCRIPT_DIR/ObscuraLuxUnwarez.sh" "$BUILD_DIR/$BUNDLE_NAME/Contents/Resources/ObscuraLuxUnwarez"
 chmod +x "$BUILD_DIR/$BUNDLE_NAME/Contents/Resources/ObscuraLuxUnwarez"
 chmod +x "$BUILD_DIR/$BUNDLE_NAME/Contents/MacOS/$APP_NAME"

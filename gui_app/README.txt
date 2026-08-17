@@ -1,8 +1,17 @@
-ObscuraLux Unwarez Malware Scanner - Native GUI (v1.6.3)
+ObscuraLux Unwarez - Native GUI (v1.6.3)
 ==========================================================
 
 WHAT'S NEW IN THIS PASS
 ------------------------
+- Real app icon: AppIcon.icns (generated from ObscuraLux Logo.png at
+  the repo root) replaces the generic default icon the app had been
+  using since the wolf-themed assets were removed. Wired in via
+  Info.plist's CFBundleIconFile and copied into Contents/Resources
+  by build_app.sh.
+- Dropped "Malware Scanner" from the product name - menu bar name,
+  window title, Info.plist, build/DMG scripts, docs, and the CLI
+  script (renamed to "ObscuraLux Unwarez v1.1.sh"). The app is just
+  "ObscuraLux Unwarez" now.
 - Deep inspection (zip/dmg/pkg/rar/7z/tar/tar.gz/tar.bz2/tar.xz/gz/
   bz2/xz/iso) was silently a no-op on real end-user Macs: `timeout` is
   a GNU coreutils command, not part of stock macOS. Added a
@@ -67,7 +76,7 @@ HOW TO BUILD
 ------------
     cd gui_app
     bash build_app.sh
-    open "build/ObscuraLux Unwarez Malware Scanner.app"
+    open "build/ObscuraLux Unwarez.app"
 
 To also package a distributable DMG (requires `pip3 install dmgbuild`):
     bash build_dmg.sh
@@ -100,5 +109,5 @@ Info.plist               App bundle metadata
 ObscuraLuxUnwarez.sh     The bash scanner (bundled as the backend)
 dmg_readme.txt           End-user setup guide (ships inside the DMG)
 build_app.sh             Compiles everything into
-                           build/ObscuraLux Unwarez Malware Scanner.app
+                           build/ObscuraLux Unwarez.app
 build_dmg.sh             Packages that .app into a distributable DMG

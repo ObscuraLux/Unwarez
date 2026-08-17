@@ -1,4 +1,4 @@
-# ObscuraLux Unwarez Malware Scanner — Developer Notes
+# ObscuraLux Unwarez — Developer Notes
 
 A snapshot for further development. This covers architecture, what's
 actually been verified vs. what hasn't, and the known open work.
@@ -30,7 +30,7 @@ gui_app/                  Native macOS SwiftUI app
   README.txt                 Build/changelog notes
 
 cli_scripts/              Standalone terminal version
-  ObscuraLux Unwarez Malware Scanner v1.1.sh
+  ObscuraLux Unwarez v1.1.sh
 ```
 
 ### The two variants
@@ -44,7 +44,7 @@ that shells out to the same bash script the CLI version runs directly.
 | ObscuraLux Unwarez GUI | `com.obscuralux.unwarez.gui` | `~/.local/share/obscuralux_unwarez_quarantine` (shared with CLI) |
 
 **Important for development:** `gui_app/ObscuraLuxUnwarez.sh` and
-`cli_scripts/ObscuraLux Unwarez Malware Scanner v1.1.sh` are separate
+`cli_scripts/ObscuraLux Unwarez v1.1.sh` are separate
 files that must be kept in sync manually. Changes to scan logic need
 applying to both. Past sessions did this with Python patch scripts
 using unique anchor strings + assertions — recommended, since a silent
@@ -279,7 +279,7 @@ to reintroduce.
 ```bash
 cd gui_app
 bash build_app.sh                              # needs Xcode CLT
-open "build/ObscuraLux Unwarez Malware Scanner v1.5.app"
+open "build/ObscuraLux Unwarez.app"
 ```
 
 Ad-hoc signing is **mandatory**, not optional — Apple Silicon refuses

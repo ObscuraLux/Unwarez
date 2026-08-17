@@ -24,9 +24,9 @@ struct ObscuraLuxUnwarezApp: App {
     private var windowTitle: String {
         guard let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
               !version.isEmpty else {
-            return "ObscuraLux Unwarez Malware Scanner"
+            return "ObscuraLux Unwarez"
         }
-        return "ObscuraLux Unwarez Malware Scanner v\(version)"
+        return "ObscuraLux Unwarez v\(version)"
     }
 
     var body: some Scene {
