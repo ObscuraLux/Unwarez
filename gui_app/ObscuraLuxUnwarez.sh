@@ -1,0 +1,1688 @@
+#!/bin/bash
+# ObscuraLux Unwarez v1.1
+# Local file scanner with hash reputation checks (ReleaseSeal + VirusTotal),
+# CSV/PDF export, scheduled scans, email alerts, and theme support.
+# Runs entirely against your own files on your own machine.
+
+QUARANTINE="$HOME/.local/share/obscuralux_unwarez_quarantine"
+mkdir -p "$QUARANTINE"/{files,hashes,reports}
+CONFIG_FILE="$QUARANTINE/.obscuralux_unwarez_config"
+MANIFEST="$QUARANTINE/hashes/quarantine_manifest.txt"
+touch "$MANIFEST"
+SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+
+# ---------- Dependency check ----------
+check_dependencies() {
+    local missing=()
+    command -v shasum >/dev/null 2>&1 || missing+=("shasum")
+    command -v curl >/dev/null 2>&1 || missing+=("curl")
+    command -v find >/dev/null 2>&1 || missing+=("find")
+
+    if [ "${#missing[@]}" -gt 0 ]; then
+        echo -e "${RED}[!] Missing required tool(s): ${missing[*]}${NC}"
+        echo "    ObscuraLux Unwarez cannot run without these. Install them and try again."
+        exit 1
+    fi
+    if ! command -v jq >/dev/null 2>&1; then
+        echo -e "${YELLOW}[!] 'jq' not found - ReleaseSeal/VirusTotal lookups will report UNKNOWN.${NC}"
+        echo "    Install with: brew install jq"
+        sleep 2
+    fi
+}
+
+# ============================================================
+# Portable timeout wrapper. `timeout` is a GNU coreutils command, not
+# part of stock macOS (BSD userland) - every deep-inspection call below
+# that used it directly was silently a no-op "command not found" on any
+# real Mac without Homebrew coreutils installed. Prefers the real
+# timeout/gtimeout binary when present; falls back to a pure-bash
+# equivalent otherwise so deep inspection has no hidden, undocumented
+# dependency. Exit code 124 on timeout matches GNU timeout's convention
+# in both paths, since callers check for it specifically.
+# ============================================================
+TIMEOUT_BIN=""
+command -v timeout >/dev/null 2>&1 && TIMEOUT_BIN="timeout"
+[ -z "$TIMEOUT_BIN" ] && command -v gtimeout >/dev/null 2>&1 && TIMEOUT_BIN="gtimeout"
+
+run_timeout() {
+    local secs="$1"; shift
+    if [ -n "$TIMEOUT_BIN" ]; then
+        "$TIMEOUT_BIN" "$secs" "$@"
+        return $?
+    fi
+    local marker="${TMPDIR:-/tmp}/.obscuralux_unwarez_rt_$$_$RANDOM"
+    "$@" &
+    local cmd_pid=$!
+    (
+        sleep "$secs"
+        if kill -0 "$cmd_pid" 2>/dev/null; then
+            : > "$marker"
+            kill -9 "$cmd_pid" 2>/dev/null
+        fi
+    ) &
+    local watcher_pid=$!
+    wait "$cmd_pid" 2>/dev/null
+    local status=$?
+    kill "$watcher_pid" 2>/dev/null
+    wait "$watcher_pid" 2>/dev/null
+    if [ -f "$marker" ]; then
+        status=124
+        rm -f "$marker"
+    fi
+    return "$status"
+}
+
+# ---------- Config load/save ----------
+THEME="dark"
+VT_API_KEY=""
+MB_API_KEY=""
+ALERT_EMAIL=""
+touch "$CONFIG_FILE"
+# shellcheck disable=SC1090
+source "$CONFIG_FILE" 2>/dev/null
+
+# ============================================================
+# API keys live in the Keychain, not the plaintext config file, via the
+# `security` CLI - always present on macOS, no extra dependency, and
+# used identically by every consumer (both CLI scripts, the GUI's
+# bundled backend, and the GUI's own Settings screen) so a key saved in
+# one place is always visible to the others. Errors from `security` are
+# surfaced to the user rather than swallowed - a silent Keychain
+# failure was the reason this was deferred previously.
+# ============================================================
+KEYCHAIN_SERVICE="${CONFIG_FILE##*/}"
+
+keychain_get() {
+    security find-generic-password -a "$1" -s "$KEYCHAIN_SERVICE" -w 2>/dev/null
+}
+
+keychain_set() {
+    local account="$1" value="$2"
+    if [ -z "$value" ]; then
+        security delete-generic-password -a "$account" -s "$KEYCHAIN_SERVICE" >/dev/null 2>&1
+        return 0
+    fi
+    local err
+    err=$(security add-generic-password -a "$account" -s "$KEYCHAIN_SERVICE" -w "$value" -U 2>&1 >/dev/null)
+    if [ -n "$err" ]; then
+        echo "[!] Could not save '$account' to Keychain: $err" >&2
+        return 1
+    fi
+    return 0
+}
+
+# One-time migration from the old plaintext config, if present.
+_legacy_vt_key="$VT_API_KEY"
+_legacy_mb_key="$MB_API_KEY"
+VT_API_KEY=$(keychain_get virustotal_api_key)
+MB_API_KEY=$(keychain_get malwarebazaar_api_key)
+[ -n "$_legacy_vt_key" ] && [ -z "$VT_API_KEY" ] && keychain_set virustotal_api_key "$_legacy_vt_key" && VT_API_KEY="$_legacy_vt_key"
+[ -n "$_legacy_mb_key" ] && [ -z "$MB_API_KEY" ] && keychain_set malwarebazaar_api_key "$_legacy_mb_key" && MB_API_KEY="$_legacy_mb_key"
+unset _legacy_vt_key _legacy_mb_key
+
+save_config() {
+    cat > "$CONFIG_FILE" << EOF
+THEME="$THEME"
+ALERT_EMAIL="$ALERT_EMAIL"
+EOF
+    chmod 600 "$CONFIG_FILE"
+    keychain_set virustotal_api_key "$VT_API_KEY"
+    keychain_set malwarebazaar_api_key "$MB_API_KEY"
+}
+
+# ---------- Step 5: Theme colors ----------
+set_theme_colors() {
+    if [ "$THEME" = "light" ]; then
+        RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[0;33m'
+        BLUE='\033[0;34m'; CYAN='\033[0;36m'; NC='\033[0m'
+        ORANGE='\033[38;5;208m'
+    else
+        RED='\033[1;31m'; GREEN='\033[1;32m'; YELLOW='\033[1;33m'
+        BLUE='\033[1;34m'; CYAN='\033[1;36m'; NC='\033[0m'
+        ORANGE='\033[38;5;208m'
+    fi
+}
+set_theme_colors
+
+# ============================================================
+# Embedded threat intelligence: known-malicious hashes and
+# indicators for two documented macOS malware campaigns:
+#
+#   1. "xdivcmp" - fake Microsoft Office / Ableton Live / Archicad /
+#      Adobe Illustrator & Creative Cloud installers bundling a
+#      credential-stealing backdoor with LaunchDaemon persistence.
+#
+#   2. "Open Gatekeeper Friendly" (OGF) - an AMOS/Poseidon-family
+#      infostealer bundled into pirated macOS app releases (TNT-style
+#      piracy groups). Steals browser data, Notes, crypto wallets, and
+#      Desktop/Documents/Downloads files, then exfiltrates and self-deletes.
+#      The malicious binary is deliberately named to blend in with a
+#      real, legitimate piracy-tool file of the same name.
+#
+# Source: community-maintained IOC trackers, current as of this build.
+# HASH MATCHING ONLY CATCHES EXACT KNOWN FILES - any recompiled or even
+# single-byte-modified variant evades it completely. This supplements,
+# but does not replace, ReleaseSeal or VirusTotal.
+# ============================================================
+
+KNOWN_BAD_SHA256=(
+  "4ccb76cedc3508e40f041694efcb7996067ef6a3ccba2dd917354cc971c23f89|xdivcmp: fake Microsoft_365_and_Office_16.112.26081010.dmg"
+  "feb1e99197f216ea39800ff3672c05b838e909c31ef2c7d20d166c53754f300b|xdivcmp: fake Microsoft_Office_LTSC_2024_VL_Serializer.pkg"
+  "ef7d259344d1662f35c94312e580fd95898fe5f4af2202270d991b890c5e6fb6|xdivcmp: first-stage universal Mach-O"
+  "659b1c995f4813bce2e1089b770fe4a72071f6de756945892e3920f3fe2ed692|xdivcmp: fake Ableton Live 12 Suite v12.4.3 U2B macOS.dmg"
+  "a2e9ba4c4e8410ac6c8d7b1326735a75ce96776fdf8f5e31173c02489c58c641|xdivcmp: fake Ableton Live 12 Suite v12.4.3 U2B macOS Patch.pkg"
+  "0174997b7eaa81de686d2f22534d8684a698bd1388ed7f15430f8b881ad32f1c|xdivcmp: Ableton-bundled first-stage Mach-O"
+  "492394a8ea9ea6c610f75014659b21c8d24ecd46dae6dff905996ecf892914a2|xdivcmp: fake Archicad v29.2.0 INT_RU ARM.dmg"
+  "47c8745f973b692a1c5116bff581baaa397e13b3f4836dc434345bc0aac2be55|xdivcmp: fake Archicad v29.2.0 ARM Patch.pkg"
+  "92b0ee7ffaacdc0eeac0c578346321ae76dc8e4f5ca94a313313934a91c1ca20|xdivcmp: fake Archicad delivery Setup payload"
+  "74547770894edeac338423ab0a5c6e848a07ebc1afb671620684206a669c463e|xdivcmp: fake Adobe Illustrator v30.4.0 Activation Tool.dmg"
+  "8501f0eb06761e74eab0bebabbc22b8d46377173a21063b39724e169aff432d2|xdivcmp: fake Creative Cloud Desktop v6.8.1 (Illustrator v30.4.0 delivery)"
+  "b67fb12dcf034062b6b76e9a8b0711270686fe1a5c340582ce1c905aaa95e650|xdivcmp: fake Adobe Illustrator v30.5.1 Activation Tool.dmg"
+  "f8e9d73df8e82ca4c9f0459e4559f1e716748f80e45e6f8851cc48fca9e3b9b7|xdivcmp: fake Creative Cloud Desktop v6.8.1 (Illustrator v30.5.1 delivery)"
+  "bab1b1743bbfc0b36565728d202415574028072054777260060cb524f798ca16|xdivcmp/Odyssey: first-stage universal Mach-O (unix001)"
+  "254e10143ae7153f74fd92bccb536d6174980c9a9edd571df5b569955ee5e129|xdivcmp/Odyssey: associated artifact"
+  "234bb752e806b4a5196bd6a6d34b15ebb0fbe273e6ccb6eab5d6c5dcd6309d69|xdivcmp/Odyssey: associated artifact"
+  "227e5a628ac131e4825d2a5fa8a7a051742a8c304f5cbdb06a3858b0e88c5054|xdivcmp/Odyssey: second-stage AppleScript (getscptraw)"
+  "33a89db6eea3b3b01e56439de1e40d0ca542bc1938a994485c44d6037e113739|xdivcmp/Odyssey: SOCKS5 component"
+  "b5c06c04a75a7fa6fb54a65e55ddbf1c155073ad0d92b2da685470c31e20d298|xdivcmp/Odyssey: associated artifact"
+  "0ff3053d9a6f510b788f7c3a84b75a14cc98e56adde725cf7617161d3bcf8723|xdivcmp/Odyssey: associated artifact"
+  "4bab216dadd5b1431717f1a5147c29bcfea636044946a05fb675da78b8523632|OGF: malicious 'Open Gatekeeper Friendly' binary"
+  "a6821d95007d2877cd66e0044d21d9052747b2a4e47edbd3b48cbb75d990d3ce|OGF: malicious 'Open Gatekeeper Friendly' binary"
+  "dd7dbbb66ff8453aff457e8ae74c9b0e1987c6106d2ad3f58435d7af5d49dc09|OGF: malicious 'Open Gatekeeper Friendly' binary"
+  "3120e8bad3dec99d34ee0fdc0df76fe8c3da71544b38fa6bbb24a123374d3dea|OGF: malicious 'Open Gatekeeper Friendly' binary"
+  "d80b443ae39b4bc7e767f1f8ab4846dd65b874ac59ec483e3858b9c805473f54|OGF: malicious 'Open Gatekeeper Friendly' binary"
+  "864d183968a47b01f099a3e6be956833ff720c0473bd46b61174401bea07dbbd|OGF: malicious 'Open Gatekeeper Friendly' binary"
+  "a4d29aa32fbec60fcdba47515c6d39dac9a6a880edd454dccf10006df2b3bca8|OGF: malicious 'Open Gatekeeper Friendly' binary"
+  "736afa6e409219cf79910b5f5101a76da563453aee74f0d38371ee376546b85f|OGF: malicious 'Open Gatekeeper Friendly' binary"
+  "5d5f04445e80db9841c9e78bee1a81a89c71cba47e053853fdedf29fd66d8437|OGF: malicious 'Open Gatekeeper Friendly' binary"
+  "1e39d447b073d4f95a6949d18bdc8580facaa28b0b7a2085adf0724899750905|OGF: malicious 'Open Gatekeeper Friendly' binary"
+  "54c6600f76f291e4455716beacd6516866d005a38ce4ef966e3080aa03ea2d0f|OGF: malicious 'Open Gatekeeper Friendly' binary"
+  "15b8627fb6d34403056b8c30393a2b7e16c85546acd75aa52375818f47647b9c|OGF: malicious 'Open Gatekeeper Friendly' binary"
+  "6be9ef2aa180560b63588c0caf19ec36a35e05776396d835c6faca6624908c8f|OGF: malicious 'Open Gatekeeper Friendly' binary"
+  "a8e772f4e98fc7038de48c9a8ebf74b0d192c550503710a762f5aa68167402f8|OGF: malicious 'Open Gatekeeper Friendly' binary"
+  "f2ca9f8e5f8b3a3b5ba6d6c7cef3e048e3638c0ba14c97787111be66f74d292f|OGF: malicious 'Open Gatekeeper Friendly' binary"
+  "841d76ddcb9460c32e0238aaab24100747375612733ac5634c8e03af56b4e990|OGF: malicious 'Open Gatekeeper Friendly' binary"
+  "0f1317f82cd35ab6ec90065b4a6c071665ac3031827e6a3ccc3abe7606f430a6|OGF: malicious 'Open Gatekeeper Friendly' binary"
+  "c0ad0f9cccd9db5a374f626cbef7ca169e20ecd53010823c7ce57fdd356f383d|OGF: malicious 'Open Gatekeeper Friendly' binary"
+  "7c5ccd13f9d7815defff28a1b9dffc89c823465a4e478f0e57cf5c6705f0095b|OGF: malicious 'Open Gatekeeper Friendly' binary"
+  "6e97b23d16aa4aa25d0cfaf9e40fae87e99e0ffe1153830195d08cff26311ce6|OGF: malicious 'Open Gatekeeper Friendly' binary"
+  "ae74c18f5a03ff6645bdc264d45d2831120b9068c6be6e867da3d08cc319d5f0|OGF: malicious 'Open Gatekeeper Friendly' binary"
+  "8169d6a6d8a02be8dcfcffcdfe5a93b7eb1191d8aac7146a53855dc8e5869913|OGF: malicious 'Open Gatekeeper Friendly' binary"
+  "9b500839cfcdefff92257edb6e148d2d3860ab8453b5c8c0114ea0278bed5c96|OGF: malicious 'Open Gatekeeper Friendly' binary"
+  "bc43cfc965007bb7d5cef72c453fc5b202d42df35834d1c63ae5fcc7f51d42d5|OGF: malicious 'Open Gatekeeper Friendly' binary"
+  "bef42ce20a0a8954137c36a930adb40d452179729ba546e5baf0414234d3421a|OGF: malicious remote payload"
+  "efd545c5195bf73e3c7e7e54068c622d3961d56cd177c44bcd5721ee131df08a|OGF: malicious remote payload"
+  "e751591cf46159bb61a7b9237ef93ec181f9609d06fc0dc0522016d6c60e9629|OGF: malicious remote payload"
+  "f6d411e35f29097b4873b662574f29cc0157ad1523400b88e49e81ad5cdaf595|OGF: malicious remote payload"
+  "ea6e7458e4e72cd006fae9c40e9edf06272e0ea41fcc2d4cbcf4a1720bc13775|OGF: malicious remote payload"
+  "0c95b2b99789ca29f0b3ce3674ecfd7a3fdca36ff57060e7c7a0cb10f120bcac|OGF: malicious remote payload"
+  "7e5751ca3b8a9a0e747fcab8665a5c98a73bd20214fdf23c8914cc81f6877fc7|OGF: malicious remote payload"
+  "2ce574b3c03b2562b4f2303b5e7a4f262868913d01957689f2fdf40a3ab352f1|OGF: malicious remote payload"
+  "ca862dec6ca4a74f2fafb53d510bad504f515f5e773ea1060206252007c59d98|OGF: malicious remote payload"
+  "fe8b1b5b0ca9e7a95b33d3fcced833c1852c5a16662f71ddea41a97181532b14|OGF: malicious remote payload"
+)
+
+KNOWN_BAD_MD5=(
+  "0041b628e66c59e25f2dac8a95405931|OGF-infected release: zBrush 2024.0.2.dmg"
+  "030f983c60b498e199d6f0d2629186f0|OGF-infected release: Topaz Gigapixel AI 7.4.4.dmg"
+  "03d5652905093b4561925d418a5a5e21|OGF-infected release: BetterZip 5.4 [TNT].dmg"
+  "0515cd770e83e1cdf877dce4ea83176f|OGF-infected release: Adobe Acrobat DC 24.005.20320.7 SICE.dmg"
+  "0681496c1c5e0d922c2621f9d75bc8b1|OGF-infected release: Blackmagic Design DaVinci Resolve Studio 19.0.0.dmg"
+  "0a9d1c1182cb0365249c258d225d80a7|OGF-infected release: Adobe After Effects 25.1.dmg"
+  "0d98df0fc37f039a9d83bead40e638bd|OGF-infected release: Capture_One_Pro_16.5.0.29_[TNT].dmg"
+  "11597e52af783daead3ca7b20c02174e|OGF-infected release: RipX.DAW.PRO.7.5.1.dmg"
+  "143c373f1f4bc121c1ae164b04f0c101|OGF-infected release: SketchUp_2024_598-243_(24.0.598)_[TNT].dmg"
+  "1770ca98ae752169f50379c28b11f40c|OGF-infected release: SILKYPIX.JPEG.Photography.11E.TNT.dmg"
+  "18590ff4d9eb846e9db01ab2cfd6537f|OGF-infected release: CleanMyMac_5 5.0.3.dmg"
+  "1b7314ca609aaf5fc3803e6e8f3921ef|OGF-infected release: Camtasia_2025.0.0_[TNT].dmg"
+  "2646ce944459c3c7d76982f074ef59ba|OGF-infected release: Capture_One_Pro_16.5.1.14_[TNT].dmg"
+  "277903ae4a92fdeb120ce4ded0fbad8f|OGF-infected release: Pro Microphone 1.7.0.dmg"
+  "2b61e7da811ffe0b21f77ee0e87f4af4|OGF-infected release: CleanMyMac_5 5.0.5 .dmg"
+  "2e491eb7f31cd46dbac2196e45fee061|OGF-infected release: Autodesk Maya 2025 202402161156 (0caf8d1269).dmg"
+  "301caf8fef80ac87b3c94b90dddc5d5b|OGF-infected release: CleanMyMac_5_5.0.5 .dmg"
+  "32c2a42ed4772ad8773746b9c3ed774a|OGF-infected release: Install_Waves_Central.dmg"
+  "3396c6e4d56a0266b054548d6e2b8586|OGF-infected release: Perfectly_Clear_Workbench_v4_4_6_1_TNT.dmg"
+  "33b473f553b60d4472d7a9a59af18324|OGF-infected release: Rhino 8.12.24282 macOS.dmg"
+  "3545fb900228dbfe9480fe0b9e40cc47|OGF-infected release: iZotope Neutron 4 v4.6.0 macOS.dmg"
+  "35bc532aa6f481343a567eb46a8fabaf|OGF-infected release: Perfectly Clear Workbench 4.6.1 2711.dmg"
+  "380c4478fbda2aabf2f163e0db7e4bed|OGF-infected release: XLN_Audio_XO_1.7.1.dmg"
+  "38e61a9f966dc748ad93f495bac4a006|OGF-infected release: Downie_4_4.8.13.dmg"
+  "3956fcb658976ebb656a00991be70062|OGF-infected release: Magic.Disk.Cleaner.2.10.1.TNT.dmg"
+  "3a3f8829dee2c1187919cd10f31f6ce4|OGF-infected release: Valentina Studio 14.7.1.dmg"
+  "3a4c7b4100da50ee20a759e9778adf45|OGF-infected release: PullTube 1.8.5.54.dmg"
+  "3baf2cdac31706752c00bc736e6b6962|OGF-infected release: Adobe Lightroom Classic v14.0.1.dmg"
+  "3e9kmo9eo782udnuxtmu3gy0a7g203zi|OGF-infected release: Native Instruments Traktor Pro 4.0.2.13 HCiSO.dmg"
+  "4160a04b0c955dad66ea9390dc4c3278|OGF-infected release: PDFelement_11_4_7_TNT.dmg"
+  "443257c0a93446003caea3b686848565|OGF-infected release: Pixelmator_Pro_3.6.15.dmg"
+  "46976589a4ca814c6a5fa751c3b11632|OGF-infected release: Nuke Studio v15.1v2 macOS ARM.dmg"
+  "483787a48d84fc74d6f9fe6362fbae2d|OGF-infected release: PDFelement 11.4.18.dmg"
+  "4e2d664b4f1b75db36e439c3a19aa21b|OGF-infected release: Perfectly_Clear_Workbench_v4_4.6.1.2717_[TNT].dmg"
+  "4ea84e372a43fbbff37b83871901f323|OGF-infected release: ParallelsDesktop-20.2.1-55876.dmg"
+  "4efe532c171a16e7aacaad7a370952d0|OGF-infected release: Audio_Hijack_4.5.0_[TNT].dmg"
+  "4f13f092e9964b239b2e88939546ec12|OGF-infected release: Kaleidoscope+5.3.1.dmg"
+  "50de6fcc310aeb9de9cf92479dbc9aec|OGF-infected release: Microsoft_365_and_Office_16.108.26041219.dmg"
+  "512d26d7ba4443da1cee8faabb3e219a|OGF-infected release: Topaz Video Pro v1.5.1 macOS.dmg"
+  "5167de1939ed9832ac191be6175668ce|OGF-infected release: Adobe Illustrator CC 2024 28.6.dmg"
+  "53e69901cdab5d65cb6ff53edfd80835|OGF-infected release: DaVinci_Resolve_Studio_19.1.1_Mac.dmg"
+  "54ddebddcf7cee877d5cbd8771d280d0|OGF-infected release: Capture One Pro 16.4.5.29.dmg"
+  "54de5383819ac0f85e24673db24383d6|OGF-infected release: Dropover.4..5.2.TNT.MAC.OS.dmg"
+  "54ea56d857e0c57180f25d4734e06ff7|OGF-infected release: Microsoft Office 2024 v16.93.dmg"
+  "5985e1fec1ae72b020672d24270e95a4|OGF-infected release: CorelDRAW v25.2.1.313.dmg"
+  "5bf80ea3e65a3327504120d5833b3b6a|OGF-infected release: Adobe Acrobat DC 24.004.20219.7.dmg"
+  "5d826945c11f9cb8344572b929e8062e|OGF-infected release: DaVinci_Resolve_Studio_19.1.3_Mac.dmg"
+  "5da1f92636300487fb329a2d4443a22b|OGF-infected release: Logic_Pro_11.1.2_MAS_[TNT].dmg"
+  "5f37ea4e9c38e3ab9b8ae9403dc92ed9|OGF-infected release: Parallels Desktop 20.1.2-55742.dmg"
+  "6041ec0341e70857445bc84bdf0cc17c|OGF-infected release: Luminar Neo 1.20.1 (18067) macOS TNT.dmg"
+  "609f32ce2788d800aa5e1245c4da62cd|OGF-infected release: DxO PhotoLab 8 8.3.0 TNT.dmg"
+  "62279f76554101c1879331d68743afc2|OGF-infected release: Capture_One_Pro_16_5_4_26.dmg"
+  "660a35f80210b4d8f6410d11a2660526|OGF-infected release: Elmedia Player Pro 8 8.20 TNT.dmg"
+  "6919ea6c8f02f65ebfb1244ccd765600|OGF-infected release: Adobe Lightroom Classic 14.1.1.dmg"
+  "6c0b893258d8f5d68591b7d2d3e83903|OGF-infected release: Install_Waves_Central.dmg"
+  "70eb7db965b3bf0fb6213d6b99a80918|OGF-infected release: Adobe Illustrator 29.0.1 NAP.dmg"
+  "710f3cef66f532c9560033ea185f043f|OGF-infected release: HitPaw Univd 4.7.0 [TNT].dmg"
+  "7513e2b4602caee8e095377db6c27e01|OGF-infected release: CleanMyMac 5 5.0.4 [U2B Pre-K'ed]-20074.dmg"
+  "76ff29ef57e8dcbe5a498153656e4e00|OGF-infected release: Downie_4_4.9.4_[TNT].dmg"
+  "780a8e7f52e43122a4e1eae2ba38b6a5|OGF-infected release: Adobe Bridge 15.0.2.dmg"
+  "7da1f3fe263c4eea91fb8f8b4abe9492|OGF-infected release: Luminar Neo 1.21.0 18389.dmg"
+  "7fd12c00e22acde8352b348709e9569a|OGF-infected release: HitPaw Photo Object Remover 1.2.2.dmg"
+  "81f0e73cdf76b63ca777727b68c8eba8|OGF-infected release: Wondershare Recoverit 13.0.7.14 [TNT].dmg"
+  "834528407c1044335ede352f3c0f4590|OGF-infected release: Cookie_7.5.2_TNT.dmg"
+  "876f3be21d8d205b30993791d9cacf37|OGF-infected release: PDF_Reader_Pro_4.7.8_TNT.dmg"
+  "88eb3ed4d295e5ea0296d090c158a0e0|OGF-infected release: Wondershare PDFelement Pro 11.1.3.dmg"
+  "8c1ca9899a3850f0302f2b4c2b76237d|OGF-infected release: ParallelsDesktop-20.2.0.dmg"
+  "8c6212f7fb638cb378c6ef1239517924|OGF-infected release: Adobe After Effects 24.5.dmg"
+  "8f3b0a8286ef892c6b68bdc0bde12878|OGF-infected release: WiFi.Explorer.Pro.3.6.9.TNT.dmg"
+  "949c3b25076469ffdde6dbf9137a13e8|OGF-infected release: Topaz Gigapixel v8.0.0 macOS.dmg"
+  "9717b403c7c4ca5c33d4d427311d7e96|OGF-infected release: Topaz Video AI 5.3.5 macOS.dmg"
+  "975f8b188b4d075cb4631312d4a7e25e|OGF-infected release: Adobe Illustrator 29.3.dmg"
+  "994cb72dd0d3f0023c9a11214bc993b6|OGF-infected release: Microsoft Office 2021 LTSC 16.88.dmg"
+  "a100d252cdc50869bacdd56185c0d3d3|OGF-infected release: Final Cut Pro 11.0.1 MAS [TNT].dmg"
+  "ab141aecb8382f4fd72e535ab78f7e90|OGF-infected release: Microsoft.Office.LTSC.Standard.for.Mac.OS.2024.v16.94.dmg"
+  "ab5e9f5a141bded16d49b9659b9bca33|OGF-infected release: Microsoft Office 2024 v16.93.dmg"
+  "ac60b72617c8ce08931a4fd424ed4565|OGF-infected release: Adobe Acrobat Pro 24.006.20400.7.dmg"
+  "af07e6653cb2fe46432620043dc71431|OGF-infected release: Microsoft_Office_LTSC_2024_VL_Serializer.pkg"
+  "b06fc59cecd6b4b09267701880f1c7ab|OGF-infected release: Waves Ultimate 15 11.06.24 [TNT].dmg"
+  "b0c0a1a7947292ac25f2c4121cc0eb1f|OGF-infected release: PDF_Reader_Pro_4_7_8_TNT.dmg"
+  "b1c01e6af780eecec99472bbdb2bf8bd|OGF-infected release: Microsoft Office 2024 v16.92.dmg"
+  "b913059ca1079f1e595d061bb6046b4d|OGF-infected release: Affinity_Photo_2_2.5.6_[TNT].dmg"
+  "bb300ba91a09ba23fbd7af43247ad4b3|OGF-infected release: Adobe Premiere Pro 25.1.dmg"
+  "c30ad49debf39d1e73350ee06d370e59|OGF-infected release: Adobe Photoshop 26.3.dmg"
+  "cb1e2369b35fb8e37dd45ef3ff098fda|OGF-infected release: Microsoft Office 2024 v16.93.dmg"
+  "cd358845f2a73beca5efad50f3833831|OGF-infected release: Infuse Pro 8.0.9 .dmg"
+  "cde447c2b2823cf6ffc57a507cb0c83c|OGF-infected release: ACDSee.Photo.Studio.11.11.0.1.3155.TNT.dmg"
+  "cfc814271f4a355b9a96e609dd9b525f|OGF-infected release: ParallelsDesktop-20.1.1-55740.dmg"
+  "d79d030e383eccaf3142e593b9ab074c|OGF-infected release: Capture One Pro 16.5.5.7. TNT.dmg"
+  "d7f8b30accdebbd343e0a63b05b2d527|OGF-infected release: CleanMyMac 5.0.4(atb).dmg"
+  "d83dc8416db1dc4d2deae50928050d02|OGF-infected release: DaVinci_Resolve_Studio_19.1_Mac.dmg"
+  "d841c91d1d1cb3a9eda3f6e6ddeddc27|OGF-infected release: Sketch_101.8_[TNT].dmg"
+  "d94dcb61e7bbfc95af863158ae039a1f|OGF-infected release: CrossOver_24.0.7_[TNT].dmg"
+  "db884a33213c5f85215c065d98966532|OGF-infected release: Microsoft Office 2024 v16.91.dmg"
+  "db8eeb9d956f327d97e23fa04fdfe1db|OGF-infected release: Install_Waves_Central.dmg"
+  "df69dc21cb6839286e247c2fa2dc462a|OGF-infected release: Adobe Illustrator 29.2.1.dmg"
+  "e67d6fc1b21539bde4d409bfcf6d9eb1|OGF-infected release: Adobe Lightroom Classic 14.2.dmg"
+  "e91b0cc7561c4d032d0da55c4285ce83|OGF-infected release: PowerPhotos_2.7.4_[TNT].dmg"
+  "ea795c69ff68af3ea67dbf5f841dac1a|OGF-infected release: PDF Expert 3.10.10.dmg"
+  "eb6be600da6c9ce2bd1bbf2583639f69|OGF-infected release: MacPilot 16.6.dmg"
+  "ee77106aabaeefb281a140c1687b25be|OGF-infected release: Commander_One_PRO_3.11_[TNT].dmg"
+  "f1e92de57afd62fd6b459b94f8f63344|OGF-infected release: Rhino_8_8_16_TNT.dmg"
+  "f5e43c9817797242d5edaa58a61600ca|OGF-infected release: Adobe Photoshop 26.1.dmg"
+  "66df4ce361e75c40cd25a43e888a103f|xdivcmp: Install.app/Contents/MacOS/Install"
+  "e689f2ec28a81fb9b9e0254e214106fa|xdivcmp: outer Package.pkg/Scripts/postinstall"
+  "da55c7a5c591807dd21716becc928eb0|xdivcmp: decoded embedded AppleScript payload"
+  "38f9526296d943bbbd8757f7859b3b3d|xdivcmp: fake Ableton Live 12 Suite v12.4.3 U2B macOS Patch.pkg"
+  "07c1e6b9a5d4310100bcc7c2edad5e60|xdivcmp: fake Archicad v29.2.0 INT_RU ARM.dmg"
+  "649ec27a97a43c4aaa949097eda02c1a|xdivcmp: fake Archicad v29.2.0 ARM Patch.pkg"
+  "2ce67d8947a9a53c40b6bc92bf970b33|xdivcmp: fake Adobe Illustrator v30.4.0 Activation Tool.dmg"
+  "0210c46785cbebd4248b449d00570d33|xdivcmp: fake Creative Cloud Desktop v6.8.1 (Illustrator v30.4.0 delivery)"
+  "839219300c6aa43426a1a5b8b83cbd91|xdivcmp: fake Adobe Illustrator v30.5.1 Activation Tool.dmg"
+  "a9058b5860f6f00c4de270a580810895|xdivcmp: fake Creative Cloud Desktop v6.8.1 (Illustrator v30.5.1 delivery)"
+)
+
+KNOWN_BAD_LAUNCHD_LABELS=("com.xdivcmp")
+KNOWN_BAD_LAUNCHD_PATHS=("/Library/LaunchDaemons/com.xdivcmp.plist")
+KNOWN_BAD_STAGING_APPS=(
+  "/Library/Application Support/Install.app"
+  "/Library/Application Support/Patch.app"
+  "/Library/Application Support/Setup.app"
+)
+KNOWN_BAD_IPS=(
+  "192.253.248.181" "86.54.25.213"
+  "81.19.135.54" "82.115.223.9" "85.209.11.155"
+  "141.98.9.20" "141.98.9.203" "185.7.214.148" "193.124.185.54"
+)
+KNOWN_BAD_DOMAINS=(
+  "charge0x.at" "nqowf.com"
+  "odyssey1.to" "rgueapp.com" "zblong.com"
+)
+
+# Exact SHA256/MD5 match against the embedded threat intel above.
+# Near-zero false-positive risk since this is exact-hash comparison,
+# not content scanning.
+check_known_bad_hash() {
+    local sha="$1" md5="$2" record rhash
+    for record in "${KNOWN_BAD_SHA256[@]}"; do
+        rhash="${record%%|*}"
+        if [ "$sha" = "$rhash" ]; then
+            echo "${record#*|}"
+            return 0
+        fi
+    done
+    if [ -n "$md5" ] && [ "$md5" != "N/A" ]; then
+        for record in "${KNOWN_BAD_MD5[@]}"; do
+            rhash="${record%%|*}"
+            if [ "$md5" = "$rhash" ]; then
+                echo "${record#*|}"
+                return 0
+            fi
+        done
+    fi
+    return 1
+}
+
+# ============================================================
+# MalwareBazaar (abuse.ch) - real-time malicious-sample database.
+# Free Auth-Key required: https://auth.abuse.ch/
+# ============================================================
+check_malwarebazaar_hash() {
+    local sha="$1"
+    [ -z "$MB_API_KEY" ] && echo "NOKEY" && return 1
+    command -v jq >/dev/null 2>&1 || { echo "NOJQ"; return 1; }
+
+    local resp status family
+    resp=$(curl -s --connect-timeout 10 --max-time 15 \
+        -H "Auth-Key: $MB_API_KEY" \
+        -d "query=get_info&hash=$sha" \
+        "https://mb-api.abuse.ch/api/v1/" 2>/dev/null)
+
+    status=$(echo "$resp" | jq -r '.query_status // "unknown"' 2>/dev/null)
+
+    # Allow-list, not deny-list: only the documented "ok" status means
+    # MalwareBazaar actually found this hash with sample data. Every
+    # other case - the documented non-matches (hash_not_found,
+    # illegal_hash, no_hash_provided, http_post_expected) AND any
+    # network failure/timeout/malformed response (which parses to an
+    # empty or unrecognized string here) - must resolve to UNKNOWN, not
+    # MALICIOUS. Getting this backwards means a network hiccup silently
+    # auto-quarantines a clean file.
+    if [ "$status" = "ok" ]; then
+        family=$(echo "$resp" | jq -r '.data[0].signature // "unnamed family"' 2>/dev/null)
+        echo "MALICIOUS:$family"
+        return 2
+    fi
+    echo "UNKNOWN"
+    return 1
+}
+
+# ============================================================
+# CIRCL hashlookup - a known-GOOD file database (NSRL + Linux
+# package repos + common OS builds). Opposite polarity from every
+# other check here: a match means the file is a recognized
+# legitimate file, not malware. Free, no API key required.
+# ============================================================
+check_circl_hashlookup() {
+    local sha="$1"
+    local http_code
+    http_code=$(curl -s --connect-timeout 10 --max-time 15 -o /dev/null -w "%{http_code}" \
+        "https://hashlookup.circl.lu/lookup/sha256/$sha" 2>/dev/null)
+
+    case "$http_code" in
+        200) echo "KNOWN_GOOD" ;;
+        *) echo "UNKNOWN" ;;
+    esac
+}
+
+# Checks REAL persistence artifacts (LaunchDaemon/LaunchAgent plists,
+# known staging app paths) - not file content guessing. Plists are
+# plaintext XML, so exact label/path checks here carry real signal.
+check_persistence_threats() {
+    echo -e "${BLUE}[*] Checking for known malicious persistence...${NC}"
+    local found=0 plist bad label
+
+    for plist in /Library/LaunchDaemons/*.plist /Library/LaunchAgents/*.plist \
+                 "$HOME/Library/LaunchAgents"/*.plist; do
+        [ -f "$plist" ] || continue
+        for bad in "${KNOWN_BAD_LAUNCHD_PATHS[@]}"; do
+            if [ "$plist" = "$bad" ]; then
+                echo -e "${RED}    [!] CRITICAL: known malicious persistence file: $plist${NC}"
+                found=1
+            fi
+        done
+        for label in "${KNOWN_BAD_LAUNCHD_LABELS[@]}"; do
+            if grep -qF "$label" "$plist" 2>/dev/null; then
+                echo -e "${RED}    [!] CRITICAL: known malicious LaunchDaemon label '$label' found in: $plist${NC}"
+                found=1
+            fi
+        done
+    done
+
+    for bad in "${KNOWN_BAD_STAGING_APPS[@]}"; do
+        if [ -e "$bad" ]; then
+            echo -e "${RED}    [!] CRITICAL: known xdivcmp staging path exists: $bad${NC}"
+            found=1
+        fi
+    done
+
+    if [ "$found" -eq 0 ]; then
+        echo -e "${GREEN}    [v] No known malicious persistence found${NC}"
+    else
+        echo -e "${YELLOW}    [!] Do not delete these manually - note them and consider a full malware${NC}"
+        echo -e "${YELLOW}        response (offline, rotate credentials) rather than just removing files.${NC}"
+    fi
+}
+
+# Checks REAL active network connections against known C2 IPs - not
+# file content. A live connection to one of these is genuine signal.
+check_network_threats() {
+    echo -e "${BLUE}[*] Checking active connections against known threat IPs...${NC}"
+    if ! command -v lsof >/dev/null 2>&1; then
+        echo -e "${YELLOW}    [!] lsof not found - skipping${NC}"
+        return 0
+    fi
+    local output ip found=0
+    output=$(lsof -i -n -P 2>/dev/null)
+    for ip in "${KNOWN_BAD_IPS[@]}"; do
+        if echo "$output" | grep -qF "$ip"; then
+            echo -e "${RED}    [!] CRITICAL: active connection to known threat IP: $ip${NC}"
+            found=1
+        fi
+    done
+    if [ "$found" -eq 0 ]; then
+        echo -e "${GREEN}    [v] No active connections to known threat IPs${NC}"
+    fi
+}
+
+# Exact filename check only. The name "Open Gatekeeper Friendly" is
+# used by BOTH a legitimate piracy-tool utility and this malware, so
+# per the source advisory, a name match alone is not proof - it's
+# flagged for a hash check, never auto-quarantined by name.
+check_ogf_filenames() {
+    echo -e "${BLUE}[*] Checking for 'Open Gatekeeper Friendly' files...${NC}"
+    local found=0 f
+    while IFS= read -r -d '' f; do
+        echo -e "${YELLOW}    [?] Found a file with this name: $f${NC}"
+        echo -e "${YELLOW}        This exact name is used by both a legitimate piracy-tool utility${NC}"
+        echo -e "${YELLOW}        and a documented infostealer. Do not run it based on name alone -${NC}"
+        echo -e "${YELLOW}        check its hash (scan it directly, or verify against known-bad hashes).${NC}"
+        found=1
+    done < <(find "$HOME/Desktop" "$HOME/Downloads" -maxdepth 2 -iname "open gatekeeper friendly*" -type f -print0 2>/dev/null)
+    [ "$found" -eq 0 ] && echo -e "${GREEN}    [v] None found${NC}"
+}
+
+# ============================================================
+# ClamAV - real content/signature-based scanning. This is the
+# only check in this tool that inspects file CONTENT (including
+# looking inside zip archives) rather than comparing hashes - so
+# unlike every other check here, it can catch malware that's new,
+# modified, or recompiled and therefore has no matching hash
+# anywhere yet. Optional: requires `brew install clamav` plus an
+# initial `freshclam` database download.
+#
+# Run once as a batch (all files in one clamscan invocation) rather
+# than per-file, since clamscan reloads its multi-hundred-MB
+# signature database on every invocation - calling it once per file
+# in a loop would be extremely slow on anything but a tiny scan.
+#
+# A CLEAN result from ClamAV does NOT count toward this tool's
+# VERIFIED status - "no signature matched" is a different, weaker
+# claim than "confirmed known-good," and treating it as equivalent
+# would quietly inflate confidence beyond what's actually earned.
+# ============================================================
+CLAMAV_AVAILABLE=0
+CLAMAV_RESULTS_FILE=""
+
+find_clamscan() {
+    local candidate
+    for candidate in /opt/homebrew/bin/clamscan /usr/local/bin/clamscan; do
+        [ -x "$candidate" ] && { echo "$candidate"; return 0; }
+    done
+    command -v clamscan 2>/dev/null
+}
+
+run_clamav_batch_scan() {
+    local file_list="$1"
+    CLAMAV_AVAILABLE=0
+    CLAMAV_RESULTS_FILE=""
+
+    local clamscan_bin
+    clamscan_bin=$(find_clamscan)
+    if [ -z "$clamscan_bin" ]; then
+        echo -e "${YELLOW}[!] ClamAV not installed - skipping content scan${NC}"
+        echo -e "${YELLOW}    Install with: brew install clamav && freshclam${NC}"
+        return 1
+    fi
+    [ -s "$file_list" ] || return 1
+
+    echo -e "${BLUE}[*] Running ClamAV content scan (this may take a while on a large scan)...${NC}"
+    CLAMAV_RESULTS_FILE=$(mktemp)
+    local clamav_stderr
+    clamav_stderr=$(mktemp)
+
+    # Bounded like every other external operation in this script (unzip,
+    # hdiutil, pkgutil, unar all have a timeout). Without one, a single
+    # problematic file or a stuck filesystem call could hang clamscan
+    # forever with nothing to recover it - previously required the user
+    # to manually `pkill -f clamscan` to get scanning moving again.
+    run_timeout 1800 "$clamscan_bin" --no-summary --infected --file-list="$file_list" \
+        > "$CLAMAV_RESULTS_FILE" 2> "$clamav_stderr"
+    local exit_code=$?
+
+    if [ "$exit_code" -eq 124 ]; then
+        echo -e "${YELLOW}[!] ClamAV content scan timed out after 30 minutes - skipping for this run${NC}"
+        pkill -9 -f "clamscan.*--file-list=" >/dev/null 2>&1
+        rm -f "$CLAMAV_RESULTS_FILE" "$clamav_stderr"
+        CLAMAV_RESULTS_FILE=""
+        return 1
+    fi
+
+    if [ "$exit_code" -eq 2 ]; then
+        echo -e "${YELLOW}[!] ClamAV reported an error - skipping content scan for this run${NC}"
+        echo -e "${YELLOW}    (database may be missing or stale - run: freshclam)${NC}"
+        [ -s "$clamav_stderr" ] && echo -e "${YELLOW}    $(head -1 "$clamav_stderr")${NC}"
+        rm -f "$CLAMAV_RESULTS_FILE" "$clamav_stderr"
+        CLAMAV_RESULTS_FILE=""
+        return 1
+    fi
+
+    rm -f "$clamav_stderr"
+    CLAMAV_AVAILABLE=1
+    local hit_count
+    hit_count=$(wc -l < "$CLAMAV_RESULTS_FILE" | tr -d ' ')
+    echo -e "${BLUE}[*] ClamAV scan complete ($hit_count signature match(es))${NC}"
+    return 0
+}
+
+check_clamav_result() {
+    local file="$1"
+    if [ "$CLAMAV_AVAILABLE" -ne 1 ] || [ -z "$CLAMAV_RESULTS_FILE" ] || [ ! -f "$CLAMAV_RESULTS_FILE" ]; then
+        echo "SKIPPED"
+        return 1
+    fi
+    local line
+    line=$(grep -F "$file: " "$CLAMAV_RESULTS_FILE" 2>/dev/null | head -1)
+    if [ -n "$line" ]; then
+        local sig="${line#*: }"
+        sig="${sig% FOUND}"
+        echo "INFECTED:$sig"
+        return 2
+    fi
+    echo "CLEAN"
+    return 0
+}
+
+# ============================================================
+# Code-signing / notarization check via spctl - Gatekeeper's own
+# assessment. INFORMATIONAL ONLY: does not affect MALICIOUS/
+# VERIFIED/UNVERIFIED classification or trigger quarantine. Being
+# unsigned is common for entirely legitimate software (including
+# this very app, since it isn't signed with a paid Apple Developer
+# certificate either) - treating "unsigned" as a threat signal
+# would create exactly the kind of false-positive problem this
+# tool has already had to fix once. Only meaningful for .app and
+# .pkg; .dmg/.zip containers aren't assessed the same way by
+# Gatekeeper, so those are skipped as not applicable.
+# ============================================================
+check_code_signature() {
+    local file="$1"
+    local lowercase spctl_type
+    lowercase=$(echo "$file" | tr '[:upper:]' '[:lower:]')
+    case "$lowercase" in
+        *.app) spctl_type="execute" ;;
+        *.pkg) spctl_type="install" ;;
+        *) echo "N/A"; return 1 ;;
+    esac
+
+    if ! command -v spctl >/dev/null 2>&1; then
+        echo "N/A"
+        return 1
+    fi
+
+    local result
+    result=$(spctl -a -vv -t "$spctl_type" "$file" 2>&1)
+    if echo "$result" | grep -qi "accepted"; then
+        if echo "$result" | grep -qi "notarized"; then
+            echo "SIGNED_NOTARIZED"
+        else
+            echo "SIGNED_UNNOTARIZED"
+        fi
+        return 0
+    elif echo "$result" | grep -qi "rejected"; then
+        echo "UNSIGNED_OR_REJECTED"
+        return 1
+    else
+        echo "N/A"
+        return 1
+    fi
+}
+
+# ============================================================
+# Deep content inspection - looks INSIDE .zip/.dmg/.pkg containers
+# rather than only hashing the outer file. Without this, a
+# malicious file repackaged inside a new/different wrapper evades
+# every hash check in this tool, since the outer hash changes even
+# when the payload inside is identical to something already known.
+#
+# Design rules, deliberately conservative:
+#  - Inner-file matches only ever ADD to a MALICIOUS verdict, never
+#    used to upgrade something to VERIFIED. A confirmed-clean file
+#    inside a mixed archive doesn't prove the whole archive is safe.
+#  - Inner-file checks use ONLY local/free/no-rate-limit sources
+#    (local threat-intel list, ReleaseSeal, CIRCL) - NOT VirusTotal
+#    or MalwareBazaar, since an archive can contain many files and
+#    checking each against a rate-limited API could exhaust the
+#    daily/per-minute quota on a single scan.
+#  - Hard size/count/time limits throughout, with guaranteed cleanup
+#    (including on failure) - mounting/expanding untrusted containers
+#    touches real system resources, and we already learned the hard
+#    way (a real process-leak bug) what happens when cleanup isn't
+#    airtight.
+# ============================================================
+check_inner_hash_safe() {
+    local sha="$1"
+    local kb_match rs_status circl_status
+    kb_match=$(check_known_bad_hash "$sha" "")
+    [ -n "$kb_match" ] && { echo "MALICIOUS:$kb_match"; return 0; }
+    rs_status=$(check_releaseseal_hash "$sha")
+    [ "$rs_status" = "COMPROMISED" ] && { echo "MALICIOUS:ReleaseSeal"; return 0; }
+    return 1
+}
+
+inspect_zip_contents() {
+    local file="$1"
+    command -v unzip >/dev/null 2>&1 || return 1
+
+    local size
+    size=$(stat -f%z "$file" 2>/dev/null || stat -c%s "$file" 2>/dev/null || echo 0)
+    [ "$size" -gt 536870912 ] && return 1  # skip >512MB - too slow/risky to expand
+
+    local workdir
+    workdir=$(mktemp -d) || return 1
+
+    if ! run_timeout 30 unzip -q -o "$file" -d "$workdir" 2>/dev/null; then
+        rm -rf "$workdir"
+        return 1
+    fi
+
+    # Zip-bomb guard: if expansion produced more than 1GB, bail rather
+    # than hash potentially thousands of files.
+    local extracted_kb
+    extracted_kb=$(du -sk "$workdir" 2>/dev/null | awk '{print $1}')
+    if [ -n "$extracted_kb" ] && [ "$extracted_kb" -gt 1048576 ]; then
+        rm -rf "$workdir"
+        return 1
+    fi
+
+    local inner_file inner_sha inner_result count=0
+    while IFS= read -r -d '' inner_file; do
+        count=$((count + 1))
+        [ "$count" -gt 200 ] && break
+        inner_sha=$(shasum -a 256 "$inner_file" 2>/dev/null | awk '{print $1}')
+        [ -z "$inner_sha" ] && continue
+        inner_result=$(check_inner_hash_safe "$inner_sha")
+        if [ -n "$inner_result" ]; then
+            echo "${inner_result} (inside $(basename "$inner_file"))"
+            rm -rf "$workdir"
+            return 0
+        fi
+    done < <(find "$workdir" -type f -print0 2>/dev/null)
+
+    rm -rf "$workdir"
+    return 1
+}
+
+# hdiutil/pkgutil are macOS-only and unavailable in the environment this
+# tool is built in - unlike inspect_zip_contents above, these two could
+# NOT be tested end-to-end before shipping. The command patterns below
+# are deliberately based on well-established, documented usage (and the
+# real xdivcmp detector script this tool's threat-intel was sourced
+# from) rather than guessed - but they genuinely need verification on
+# a real Mac before being trusted the way the rest of this tool is.
+inspect_dmg_contents() {
+    local file="$1"
+    command -v hdiutil >/dev/null 2>&1 || return 1
+
+    local size
+    size=$(stat -f%z "$file" 2>/dev/null || echo 0)
+    [ "$size" -gt 1073741824 ] && return 1  # skip >1GB
+
+    local mountdir
+    mountdir=$(mktemp -d) || return 1
+
+    if ! run_timeout 30 hdiutil attach -readonly -nobrowse -noautoopen -owners off -noverify \
+            -mountpoint "$mountdir" "$file" >/dev/null 2>&1; then
+        # A timeout-killed attach can leave a partial mount behind even
+        # though it reported failure - always try to detach before
+        # removing the directory, or the mount point leaks permanently.
+        hdiutil detach "$mountdir" >/dev/null 2>&1 || hdiutil detach "$mountdir" -force >/dev/null 2>&1
+        rmdir "$mountdir" 2>/dev/null
+        return 1
+    fi
+
+    local result="" count=0
+    local inner_file inner_sha inner_result inner_app inner_exec inner_bin
+
+    # Nested .pkg / .dmg files - hash the container itself
+    while IFS= read -r -d '' inner_file; do
+        count=$((count + 1))
+        [ "$count" -gt 30 ] && break
+        inner_sha=$(shasum -a 256 "$inner_file" 2>/dev/null | awk '{print $1}')
+        [ -z "$inner_sha" ] && continue
+        inner_result=$(check_inner_hash_safe "$inner_sha")
+        if [ -n "$inner_result" ]; then
+            result="${inner_result} (inside $(basename "$inner_file"), found in $(basename "$file"))"
+            break
+        fi
+    done < <(find "$mountdir" -maxdepth 4 -type f \( -iname "*.pkg" -o -iname "*.dmg" \) -print0 2>/dev/null)
+
+    # .app bundles - hash the main executable specifically (found via
+    # Info.plist's CFBundleExecutable), since hashing a directory isn't
+    # meaningful and the app's actual code is what matters here.
+    if [ -z "$result" ]; then
+        while IFS= read -r -d '' inner_app; do
+            count=$((count + 1))
+            [ "$count" -gt 30 ] && break
+            inner_exec=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$inner_app/Contents/Info.plist" 2>/dev/null)
+            [ -z "$inner_exec" ] && continue
+            case "$inner_exec" in */*|.|..) continue ;; esac
+            inner_bin="$inner_app/Contents/MacOS/$inner_exec"
+            [ -f "$inner_bin" ] || continue
+            inner_sha=$(shasum -a 256 "$inner_bin" 2>/dev/null | awk '{print $1}')
+            [ -z "$inner_sha" ] && continue
+            inner_result=$(check_inner_hash_safe "$inner_sha")
+            if [ -n "$inner_result" ]; then
+                result="${inner_result} (inside $(basename "$inner_app")'s main executable, found in $(basename "$file"))"
+                break
+            fi
+        done < <(find "$mountdir" -maxdepth 3 -iname "*.app" -type d -print0 2>/dev/null)
+    fi
+
+    hdiutil detach "$mountdir" >/dev/null 2>&1 || hdiutil detach "$mountdir" -force >/dev/null 2>&1
+    rmdir "$mountdir" 2>/dev/null
+
+    if [ -n "$result" ]; then
+        echo "$result"
+        return 0
+    fi
+    return 1
+}
+
+inspect_pkg_contents() {
+    local file="$1"
+    command -v pkgutil >/dev/null 2>&1 || return 1
+
+    local size
+    size=$(stat -f%z "$file" 2>/dev/null || echo 0)
+    [ "$size" -gt 1073741824 ] && return 1
+
+    local workdir
+    workdir=$(mktemp -d) || return 1
+    rmdir "$workdir"  # pkgutil --expand requires the target path not exist yet
+
+    if ! run_timeout 60 pkgutil --expand "$file" "$workdir" >/dev/null 2>&1; then
+        rm -rf "$workdir"
+        return 1
+    fi
+
+    local result="" warn_scripts=""
+
+    # Installer script check - INFORMATIONAL ONLY (returned separately
+    # from a hash match, never auto-quarantines by itself). Pattern-
+    # matching scripts is exactly the kind of heuristic that produced a
+    # real false positive earlier in this tool's history.
+    local script
+    while IFS= read -r -d '' script; do
+        if grep -qE '(^|[;&|[:space:]])(sudo[[:space:]]+)?(/usr/sbin/)?spctl[[:space:]]+--(master|global)-disable' "$script" 2>/dev/null; then
+            warn_scripts="${warn_scripts}${warn_scripts:+; }disables Gatekeeper"
+        fi
+        if grep -qE 'xattr[[:space:]]+.*com\.apple\.quarantine' "$script" 2>/dev/null; then
+            warn_scripts="${warn_scripts}${warn_scripts:+; }strips quarantine attribute"
+        fi
+    done < <(find "$workdir" -type f \( -name "preinstall" -o -name "postinstall" \) -print0 2>/dev/null)
+
+    # Payload contents - a pkg Payload is gzip-compressed cpio, not tar.
+    local payload_file expanded_payload inner_file inner_sha inner_result count=0
+    while IFS= read -r -d '' payload_file; do
+        expanded_payload=$(mktemp -d) || continue
+        if run_timeout 60 bash -c "gunzip -dc '$payload_file' 2>/dev/null | (cd '$expanded_payload' && cpio -i --quiet 2>/dev/null)"; then
+            # Zip-bomb guard, matching inspect_zip_contents/inspect_unar_contents -
+            # a hostile payload could otherwise expand unbounded within the
+            # time budget above.
+            local payload_kb
+            payload_kb=$(du -sk "$expanded_payload" 2>/dev/null | awk '{print $1}')
+            if [ -n "$payload_kb" ] && [ "$payload_kb" -gt 1048576 ]; then
+                rm -rf "$expanded_payload"
+                continue
+            fi
+            while IFS= read -r -d '' inner_file; do
+                count=$((count + 1))
+                [ "$count" -gt 100 ] && break
+                inner_sha=$(shasum -a 256 "$inner_file" 2>/dev/null | awk '{print $1}')
+                [ -z "$inner_sha" ] && continue
+                inner_result=$(check_inner_hash_safe "$inner_sha")
+                if [ -n "$inner_result" ]; then
+                    result="${inner_result} (inside $(basename "$inner_file") in package payload)"
+                    break
+                fi
+            done < <(find "$expanded_payload" -type f -print0 2>/dev/null)
+        fi
+        rm -rf "$expanded_payload"
+        [ -n "$result" ] && break
+        [ "$count" -gt 100 ] && break
+    done < <(find "$workdir" -maxdepth 2 -name "Payload" -print0 2>/dev/null)
+
+    rm -rf "$workdir"
+
+    if [ -n "$result" ]; then
+        echo "$result"
+        return 0
+    elif [ -n "$warn_scripts" ]; then
+        echo "SUSPICIOUS_SCRIPT:$warn_scripts"
+        return 2
+    fi
+    return 1
+}
+
+inspect_deep_contents() {
+    local file="$1"
+    local lowercase
+    lowercase=$(echo "$file" | tr '[:upper:]' '[:lower:]')
+    case "$lowercase" in
+        *.zip) inspect_zip_contents "$file" ;;
+        *.dmg) inspect_dmg_contents "$file" ;;
+        *.pkg) inspect_pkg_contents "$file" ;;
+        *.rar|*.7z|*.tar|*.tar.gz|*.tgz|*.tar.bz2|*.tbz2|*.tar.xz|*.txz|*.gz|*.bz2|*.xz|*.iso)
+            inspect_unar_contents "$file" ;;
+        *) return 1 ;;
+    esac
+}
+
+# unrar has been removed from Homebrew (license policy) and the fallback
+# rar cask is being disabled Sept 1 2026 - unar (brew install unar) is
+# the current, actively-maintained tool and is what this function uses.
+# Handles every archive/compression format this tool supports beyond
+# zip/dmg/pkg: rar, 7z, tar, tar.gz/.tgz, tar.bz2/.tbz2, tar.xz/.txz,
+# gz, bz2, xz, and iso all go through unar's single interface. RAR was
+# tested end-to-end (a real .rar archive built with the actual rar
+# compressor, containing a payload whose hash was verified to be
+# correctly detected); the other nine formats were verified to extract
+# correctly through the same interface.
+inspect_unar_contents() {
+    local file="$1"
+    command -v unar >/dev/null 2>&1 || return 1
+
+    local size
+    size=$(stat -f%z "$file" 2>/dev/null || stat -c%s "$file" 2>/dev/null || echo 0)
+    [ "$size" -gt 536870912 ] && return 1
+
+    local workdir
+    workdir=$(mktemp -d) || return 1
+
+    if ! run_timeout 30 unar -f -q -o "$workdir" "$file" >/dev/null 2>&1; then
+        rm -rf "$workdir"
+        return 1
+    fi
+
+    local extracted_kb
+    extracted_kb=$(du -sk "$workdir" 2>/dev/null | awk '{print $1}')
+    if [ -n "$extracted_kb" ] && [ "$extracted_kb" -gt 1048576 ]; then
+        rm -rf "$workdir"
+        return 1
+    fi
+
+    local inner_file inner_sha inner_result count=0
+    while IFS= read -r -d '' inner_file; do
+        count=$((count + 1))
+        [ "$count" -gt 200 ] && break
+        inner_sha=$(shasum -a 256 "$inner_file" 2>/dev/null | awk '{print $1}')
+        [ -z "$inner_sha" ] && continue
+        inner_result=$(check_inner_hash_safe "$inner_sha")
+        if [ -n "$inner_result" ]; then
+            echo "${inner_result} (inside $(basename "$inner_file"))"
+            rm -rf "$workdir"
+            return 0
+        fi
+    done < <(find "$workdir" -type f -print0 2>/dev/null)
+
+    rm -rf "$workdir"
+    return 1
+}
+
+
+check_dependencies
+
+# ---------- Non-interactive / cron mode (Step 3) ----------
+AUTO_MODE=0
+AUTO_TARGET=""
+AUTO_FILES_LIST=""
+AUTO_PATH=""
+GUI_MODE=0
+for arg in "$@"; do
+    case "$arg" in
+        --auto) AUTO_MODE=1 ;;
+        --target=*) AUTO_TARGET="${arg#*=}" ;;
+        --path=*) AUTO_PATH="${arg#*=}" ;;
+        --files=*) AUTO_FILES_LIST="${arg#*=}" ;;
+        --gui) GUI_MODE=1; AUTO_MODE=1 ;;
+    esac
+done
+
+banner() {
+    clear
+    echo -e "${CYAN}                    _..:::.._${NC}"
+    echo -e "${CYAN}                  .:::::/|::::.${NC}"
+    echo -e "${CYAN}                 ::::::/ V|:::::${NC}"
+    echo -e "${CYAN}                ::::::/'  |::::::${NC}"
+    echo -e "${CYAN}                ::::<_,   (:::::;${NC}"
+    echo -e "${CYAN}                 :::::|    \\::::${NC}"
+    echo -e "${CYAN}                  :::/      \\:'${NC}"
+    echo ""
+    echo "========================================"
+    echo "   ObscuraLux Unwarez v1.1"
+    echo "========================================"
+}
+
+# ============================================================
+# ReleaseSeal hash reputation (existing third-party list)
+# ============================================================
+RELEASESEAL_DB="$QUARANTINE/releaseseal_cache.json"
+RELEASESEAL_API="https://api.github.com/repos/SEALTEAMWORLDWIDE/ReleaseSeal/releases/latest"
+CACHE_TIME="$QUARANTINE/.releaseseal_timestamp"
+
+download_releaseseal_db() {
+    echo -e "${BLUE}[*] Checking ReleaseSeal database...${NC}"
+    if [ -f "$CACHE_TIME" ]; then
+        cache_age=$(($(date +%s) - $(cat "$CACHE_TIME")))
+        if [ "$cache_age" -lt 86400 ] && [ -f "$RELEASESEAL_DB" ]; then
+            echo -e "${GREEN}[v] Using cached ReleaseSeal database (${cache_age}s old)${NC}"
+            return 0
+        fi
+    fi
+    if command -v curl >/dev/null 2>&1; then
+        asset_url=$(curl -sL --connect-timeout 10 --max-time 15 "$RELEASESEAL_API" 2>/dev/null | grep -o '"browser_download_url": "[^"]*evidence.json[^"]*"' | head -1 | cut -d'"' -f4)
+        [ -n "$asset_url" ] && curl -sL --connect-timeout 10 --max-time 20 -o "$RELEASESEAL_DB" "$asset_url" 2>/dev/null
+        if [ ! -f "$RELEASESEAL_DB" ] || [ ! -s "$RELEASESEAL_DB" ]; then
+            curl -sL --connect-timeout 10 --max-time 20 -o "$RELEASESEAL_DB" "https://github.com/SEALTEAMWORLDWIDE/ReleaseSeal/releases/latest/download/evidence.json" 2>/dev/null
+        fi
+    fi
+    if [ -f "$RELEASESEAL_DB" ] && [ -s "$RELEASESEAL_DB" ]; then
+        date +%s > "$CACHE_TIME"
+        echo -e "${GREEN}[v] ReleaseSeal database loaded${NC}"
+    else
+        echo -e "${YELLOW}[!] ReleaseSeal database unavailable - offline mode${NC}"
+        rm -f "$RELEASESEAL_DB" 2>/dev/null
+    fi
+}
+
+check_releaseseal_hash() {
+    local hash="$1"
+    [ ! -f "$RELEASESEAL_DB" ] && echo "OFFLINE" && return 1
+    if command -v jq >/dev/null 2>&1; then
+        v=$(jq -r --arg h "$hash" '.verifiedArtifacts[]? | select(.hash == $h) | "VERIFIED"' "$RELEASESEAL_DB" 2>/dev/null | head -1)
+        [ -n "$v" ] && echo "VERIFIED" && return 0
+        c=$(jq -r --arg h "$hash" '.compromised[]? | select(.hash == $h) | "COMPROMISED"' "$RELEASESEAL_DB" 2>/dev/null | head -1)
+        [ -n "$c" ] && echo "COMPROMISED" && return 2
+    fi
+    echo "UNKNOWN"; return 1
+}
+
+# ============================================================
+# Step 6: VirusTotal hash lookup (real public malware DB)
+# ============================================================
+VT_DISABLED_FOR_SESSION=0
+VT_LAST_CALL_TS=0
+
+check_virustotal_hash() {
+    local hash="$1"
+    [ -z "$VT_API_KEY" ] && echo "NOKEY" && return 1
+    [ "$VT_DISABLED_FOR_SESSION" -eq 1 ] && echo "RATE_LIMITED" && return 1
+    command -v jq >/dev/null 2>&1 || { echo "NOJQ"; return 1; }
+
+    # Free-tier VT API allows ~4 req/min. Space out calls so we don't
+    # immediately get rate-limited on multi-file scans.
+    local now elapsed_since_last
+    now=$(date +%s)
+    elapsed_since_last=$((now - VT_LAST_CALL_TS))
+    if [ "$elapsed_since_last" -lt 15 ] && [ "$VT_LAST_CALL_TS" -ne 0 ]; then
+        sleep $((15 - elapsed_since_last))
+    fi
+    VT_LAST_CALL_TS=$(date +%s)
+
+    local resp http_code body
+    resp=$(curl -s --connect-timeout 10 --max-time 15 -w "\n%{http_code}" \
+        -H "x-apikey: $VT_API_KEY" \
+        "https://www.virustotal.com/api/v3/files/$hash" 2>/dev/null)
+    http_code=$(echo "$resp" | tail -n1)
+    body=$(echo "$resp" | sed '$d')
+
+    case "$http_code" in
+        429)
+            echo -e "\n${YELLOW}[!] VirusTotal rate limit hit - disabling VT lookups for the rest of this scan.${NC}" >&2
+            VT_DISABLED_FOR_SESSION=1
+            echo "RATE_LIMITED"; return 1
+            ;;
+        401|403)
+            echo -e "\n${YELLOW}[!] VirusTotal rejected the API key - disabling VT lookups for this scan.${NC}" >&2
+            VT_DISABLED_FOR_SESSION=1
+            echo "BADKEY"; return 1
+            ;;
+        404)
+            echo "UNKNOWN"; return 1
+            ;;
+        200)
+            local malicious
+            malicious=$(echo "$body" | jq -r '.data.attributes.last_analysis_stats.malicious // 0' 2>/dev/null)
+            if [ -z "$malicious" ]; then
+                echo "UNKNOWN"; return 1
+            elif [ "$malicious" -gt 0 ]; then
+                # PUP vs real malware: if every engine that flagged this
+                # used a PUP/PUA/"unwanted"-style signature name (e.g.
+                # "MacOS:TNT-A [PUP]"), it's a bundled/adware-style flag,
+                # not confirmed malware - report it distinctly rather
+                # than as full MALICIOUS. Any engine using a non-PUP-
+                # looking name (a real trojan/backdoor family, etc.)
+                # keeps this as MALICIOUS - conservative on purpose.
+                local flag_sigs is_pup sig
+                flag_sigs=$(echo "$body" | jq -r '.data.attributes.last_analysis_results[]? | select(.category=="malicious") | .result' 2>/dev/null)
+                is_pup=1
+                if [ -z "$flag_sigs" ]; then
+                    is_pup=0
+                else
+                    while IFS= read -r sig; do
+                        [ -z "$sig" ] && continue
+                        if ! echo "$sig" | grep -qiE 'pup|pua|unwanted'; then
+                            is_pup=0
+                            break
+                        fi
+                    done <<< "$flag_sigs"
+                fi
+                if [ "$is_pup" -eq 1 ]; then
+                    echo "PUP:$malicious"; return 2
+                fi
+                echo "MALICIOUS:$malicious"; return 2
+            else
+                echo "CLEAN"; return 0
+            fi
+            ;;
+        *)
+            echo "UNKNOWN"; return 1
+            ;;
+    esac
+}
+
+# ============================================================
+# Step 1: Progress bar with elapsed / ETA
+# ============================================================
+SCAN_START_TS=0
+show_progress() {
+    local current=$1 total=$2
+    local percent=$((current * 100 / total))
+    local filled=$((percent / 5))
+    local empty=$((20 - filled))
+    local elapsed=$(( $(date +%s) - SCAN_START_TS ))
+    local eta="--"
+    if [ "$current" -gt 0 ]; then
+        eta=$(( elapsed * (total - current) / current ))
+    fi
+    printf "\r["
+    for ((i=0; i<filled; i++)); do printf "="; done
+    for ((i=0; i<empty; i++)); do printf " "; done
+    printf "] %3d%% (%d/%d) elapsed:%ds eta:%ss" "$percent" "$current" "$total" "$elapsed" "$eta"
+}
+
+# ============================================================
+# Step 4: Email alert via Mail.app (macOS, no server setup needed)
+# ============================================================
+send_email_alert() {
+    local subject="$1" body="$2"
+    [ -z "$ALERT_EMAIL" ] && return 0
+    command -v osascript >/dev/null 2>&1 || return 0
+    osascript << APPLESCRIPT_END
+tell application "Mail"
+    set newMsg to make new outgoing message with properties {subject:"$subject", content:"$body", visible:false}
+    tell newMsg
+        make new to recipient at end of to recipients with properties {address:"$ALERT_EMAIL"}
+        send
+    end tell
+end tell
+APPLESCRIPT_END
+}
+
+# ============================================================
+# Reliability: Restore / undo quarantined files
+# ============================================================
+manage_quarantine() {
+    while true; do
+        banner
+        echo "Quarantined Files"
+        echo "========================================"
+
+        if [ ! -s "$MANIFEST" ]; then
+            echo "  (no quarantined files on record)"
+            echo ""
+            read -p "Press ENTER to go back..." _
+            return
+        fi
+
+        local i=0
+        local -a entries=()
+        while IFS='|' read -r ts origpath qname sha reason; do
+            i=$((i + 1))
+            entries[$i]="$ts|$origpath|$qname|$sha|$reason"
+            local exists="present"
+            [ ! -f "$QUARANTINE/files/$qname" ] && exists="MISSING FROM DISK"
+            printf "  [%d] %-10s %-40s (%s, %s)\n" "$i" "$reason" "$origpath" "$ts" "$exists"
+        done < "$MANIFEST"
+
+        echo ""
+        echo "  [R] Restore an item by number"
+        echo "  [D] Permanently delete an item by number"
+        echo "  [B] Back to main menu"
+        echo ""
+        read -p "Selection: " qchoice
+
+        case "$qchoice" in
+            [Rr])
+                read -p "Enter item number to restore: " num
+                local entry="${entries[$num]}"
+                if [ -z "$entry" ]; then
+                    echo -e "${YELLOW}Invalid item number${NC}"; sleep 1; continue
+                fi
+                IFS='|' read -r ts origpath qname sha reason <<< "$entry"
+                if [ ! -f "$QUARANTINE/files/$qname" ]; then
+                    echo -e "${RED}Quarantined copy is missing on disk - cannot restore${NC}"
+                    sleep 2; continue
+                fi
+                echo "Original location: $origpath"
+                read -p "Restore to this path? [y/N]: " confirm
+                if [[ "$confirm" =~ ^[Yy]$ ]]; then
+                    mkdir -p "$(dirname "$origpath")" 2>/dev/null
+                    if [ -f "$origpath" ]; then
+                        echo -e "${YELLOW}A file already exists at that path - not overwriting.${NC}"
+                        echo "Restored copy left at: $QUARANTINE/files/$qname"
+                    else
+                        cp -R "$QUARANTINE/files/$qname" "$origpath" 2>/dev/null \
+                            && echo -e "${GREEN}[v] Restored to $origpath${NC}" \
+                            || echo -e "${RED}[!] Restore failed (permissions?)${NC}"
+                    fi
+                else
+                    echo "Cancelled."
+                fi
+                sleep 1
+                ;;
+            [Dd])
+                read -p "Enter item number to permanently delete: " num
+                local entry="${entries[$num]}"
+                if [ -z "$entry" ]; then
+                    echo -e "${YELLOW}Invalid item number${NC}"; sleep 1; continue
+                fi
+                IFS='|' read -r ts origpath qname sha reason <<< "$entry"
+                read -p "Permanently delete quarantined copy of '$origpath'? [y/N]: " confirm
+                if [[ "$confirm" =~ ^[Yy]$ ]]; then
+                    rm -rf "$QUARANTINE/files/$qname" 2>/dev/null
+                    grep -vF "$ts|$origpath|$qname|$sha|$reason" "$MANIFEST" > "$MANIFEST.tmp" 2>/dev/null
+                    mv "$MANIFEST.tmp" "$MANIFEST"
+                    echo -e "${GREEN}[v] Deleted${NC}"
+                else
+                    echo "Cancelled."
+                fi
+                sleep 1
+                ;;
+            [Bb]) return ;;
+            *) echo -e "${YELLOW}Invalid selection${NC}"; sleep 1 ;;
+        esac
+    done
+}
+
+# ============================================================
+# Step 2: Export report to CSV / PDF
+# ============================================================
+export_report() {
+    local hashlog="$1" report_txt="$2"
+    echo ""
+    echo "Export results:"
+    echo "  [1] CSV"
+    echo "  [2] PDF"
+    echo "  [3] Both"
+    echo "  [4] Skip"
+    read -p "Selection: " exp_choice
+
+    local csv_out="${report_txt%.txt}.csv"
+    local pdf_out="${report_txt%.txt}.pdf"
+
+    case "$exp_choice" in
+        1|3)
+            {
+                echo "SHA256,MD5,Filename,SizeBytes,Status"
+                tail -n +2 "$hashlog" | awk -F'|' '{printf "\"%s\",\"%s\",\"%s\",\"%s\",\"%s\"\n",$1,$2,$3,$4,$5}'
+            } > "$csv_out"
+            echo -e "${GREEN}[v] CSV saved to $csv_out${NC}"
+            ;;
+    esac
+
+    case "$exp_choice" in
+        2|3)
+            if command -v textutil >/dev/null 2>&1; then
+                textutil -convert pdf -output "$pdf_out" "$report_txt" 2>/dev/null \
+                    && echo -e "${GREEN}[v] PDF saved to $pdf_out${NC}" \
+                    || echo -e "${YELLOW}[!] PDF conversion failed${NC}"
+            else
+                echo -e "${YELLOW}[!] textutil not found (macOS only) - skipping PDF${NC}"
+            fi
+            ;;
+    esac
+}
+
+# ============================================================
+# Step 3: Scheduled scans (cron)
+# ============================================================
+manage_cron() {
+    banner
+    echo "Scheduled Scans"
+    echo "========================================"
+    echo "Current ObscuraLux Unwarez cron jobs:"
+    crontab -l 2>/dev/null | grep -F "$SCRIPT_PATH" || echo "  (none)"
+    echo ""
+    echo "  [1] Add daily scan (Downloads folder, 9am)"
+    echo "  [2] Add weekly scan (Home folder, Sunday 9am)"
+    echo "  [3] Remove all ObscuraLux Unwarez cron jobs"
+    echo "  [4] Back"
+    read -p "Selection: " cchoice
+
+    case "$cchoice" in
+        1)
+            (crontab -l 2>/dev/null | grep -vF "$SCRIPT_PATH"; \
+             echo "0 9 * * * \"$SCRIPT_PATH\" --auto --target=1") | crontab -
+            echo -e "${GREEN}[v] Daily scan scheduled for 9:00 AM${NC}"
+            ;;
+        2)
+            (crontab -l 2>/dev/null | grep -vF "$SCRIPT_PATH"; \
+             echo "0 9 * * 0 \"$SCRIPT_PATH\" --auto --target=3") | crontab -
+            echo -e "${GREEN}[v] Weekly scan scheduled for Sundays 9:00 AM${NC}"
+            ;;
+        3)
+            (crontab -l 2>/dev/null | grep -vF "$SCRIPT_PATH") | crontab -
+            echo -e "${GREEN}[v] ObscuraLux Unwarez cron jobs removed${NC}"
+            ;;
+    esac
+    [ "$cchoice" != "4" ] && { echo ""; read -p "Press ENTER to continue..." _; }
+}
+
+# ============================================================
+# Settings menu (theme, VT key, email)
+# ============================================================
+settings_menu() {
+    banner
+    echo "Settings"
+    echo "========================================"
+    echo "  Theme:            $THEME"
+    echo "  VirusTotal key:   $([ -n "$VT_API_KEY" ] && echo "configured (${VT_API_KEY:0:6}...)" || echo "not set")"
+    echo "  MalwareBazaar key: $([ -n "$MB_API_KEY" ] && echo "configured (${MB_API_KEY:0:6}...)" || echo "not set")"
+    echo "  CIRCL hashlookup: always on (free, no key needed)"
+    echo "  ClamAV:           $([ -n "$(find_clamscan)" ] && echo "installed" || echo "not installed (brew install clamav && freshclam)")"
+    echo "  Alert email:      $([ -n "$ALERT_EMAIL" ] && echo "$ALERT_EMAIL" || echo "not set")"
+    echo "  Local threat DB:  ${#KNOWN_BAD_SHA256[@]} SHA256 + ${#KNOWN_BAD_MD5[@]} MD5 hashes"
+    echo "                    (xdivcmp + Open Gatekeeper Friendly campaigns)"
+    echo ""
+    echo "  [1] Toggle dark/light theme"
+    echo "  [2] Set VirusTotal API key"
+    echo "  [3] Set alert email address"
+    echo "  [4] Clear VirusTotal API key"
+    echo "  [5] Clear alert email"
+    echo "  [6] Set MalwareBazaar API key"
+    echo "  [7] Clear MalwareBazaar API key"
+    echo "  [8] Back"
+    read -p "Selection: " schoice
+
+    case "$schoice" in
+        1)
+            [ "$THEME" = "dark" ] && THEME="light" || THEME="dark"
+            save_config; set_theme_colors
+            echo -e "${GREEN}[v] Theme set to $THEME${NC}"
+            ;;
+        2)
+            echo "Get a free key at https://www.virustotal.com/gui/join-us"
+            read -p "Enter VirusTotal API key: " VT_API_KEY
+            save_config
+            echo -e "${GREEN}[v] VirusTotal key saved${NC}"
+            ;;
+        3)
+            read -p "Enter alert email address: " ALERT_EMAIL
+            save_config
+            echo -e "${GREEN}[v] Alert email saved${NC}"
+            ;;
+        4) VT_API_KEY=""; save_config; echo -e "${GREEN}[v] Cleared${NC}" ;;
+        5) ALERT_EMAIL=""; save_config; echo -e "${GREEN}[v] Cleared${NC}" ;;
+        6)
+            echo "Get a free key at https://auth.abuse.ch/ (sign up, then find"
+            echo "your Auth-Key under your account page)"
+            read -p "Enter MalwareBazaar Auth-Key: " MB_API_KEY
+            save_config
+            echo -e "${GREEN}[v] MalwareBazaar key saved${NC}"
+            ;;
+        7) MB_API_KEY=""; save_config; echo -e "${GREEN}[v] Cleared${NC}" ;;
+    esac
+    [ "$schoice" != "8" ] && { echo ""; read -p "Press ENTER to continue..." _; }
+}
+
+# ============================================================
+# Core scan routine
+# ============================================================
+run_scan() {
+    local choice="$1"
+    local custom_path="$2"
+    local TARGET="" CUSTOM_PATH="$custom_path"
+
+    if [ "$AUTO_MODE" -eq 0 ]; then
+        banner
+        echo ""
+        echo "Choose scan target:"
+        echo "  [1] Downloads folder only"
+        echo "  [2] Desktop folder only"
+        echo "  [3] Entire home directory (~)"
+        echo "  [4] Custom directory"
+        echo "  [5] Custom file"
+        echo "  [6] Full system scan (excludes system folders)"
+        echo "  [7] Back to main menu"
+        echo ""
+        read -p "Selection: " choice
+        case "$choice" in
+            4) read -p "Enter directory path: " TARGET ;;
+            5) read -p "Enter file path: " CUSTOM_PATH ;;
+            7) return 2 ;;
+        esac
+    fi
+
+    case "$choice" in
+        1) TARGET="$HOME/Downloads" ;;
+        2) TARGET="$HOME/Desktop" ;;
+        3) TARGET="$HOME" ;;
+        4) [ -z "$TARGET" ] && TARGET="$custom_path" ;;
+        5) : ;;
+        8) : ;;
+        6)
+            TARGET="/"
+            if [ "$AUTO_MODE" -eq 0 ]; then
+                echo ""
+                echo -e "${YELLOW}[!] Full system scan will walk the entire drive and can take a long time.${NC}"
+                read -p "Type YES to confirm: " confirm
+                if [ "$confirm" != "YES" ]; then
+                    echo "Cancelled."
+                    sleep 1
+                    return 1
+                fi
+            fi
+            ;;
+        7) return 2 ;;
+        *) echo -e "${YELLOW}Invalid selection${NC}"; sleep 1; return 1 ;;
+    esac
+
+    REPORT="$QUARANTINE/reports/report_$(date +%Y%m%d_%H%M%S).txt"
+    echo "Scan Report - $(date)" > "$REPORT"
+
+    echo ""
+    echo -e "${BLUE}[*] Initializing scan...${NC}"
+    [ "$GUI_MODE" -eq 1 ] && printf 'GUI\x1fSTATUS\x1fChecking ReleaseSeal database...\n'
+    download_releaseseal_db
+    if [ -n "$VT_API_KEY" ]; then
+        echo -e "${BLUE}[*] VirusTotal lookups enabled (public API rate limits apply)${NC}"
+    fi
+
+    echo ""
+    [ "$GUI_MODE" -eq 1 ] && printf 'GUI\x1fSTATUS\x1fChecking for known threats...\n'
+    check_persistence_threats
+    check_network_threats
+    check_ogf_filenames
+    echo ""
+    [ "$GUI_MODE" -eq 1 ] && printf 'GUI\x1fSTATUS\x1fFinding files to scan...\n'
+
+    echo "SHA256|MD5|FILENAME|SIZE|STATUS" > "$QUARANTINE/hashes/hashes.txt"
+
+    FILE_LIST=$(mktemp)
+    if [ "$choice" = "6" ]; then
+        find "/" -maxdepth 10 \
+            \( -path "/System*" -o -path "/Library*" -o -path "*/.Trash*" -o -path "$QUARANTINE" \) -prune \
+            -o -type f \( -name "*.dmg" -o -name "*.zip" -o -name "*.pkg" -o -name "*.app" -o -name "*.rar" \
+                -o -name "*.7z" -o -name "*.tar" -o -name "*.tgz" -o -name "*.tbz2" -o -name "*.txz" \
+                -o -name "*.gz" -o -name "*.bz2" -o -name "*.xz" -o -name "*.iso" \) -print 2>/dev/null > "$FILE_LIST"
+    elif [ "$choice" = "5" ] && [ -n "$CUSTOM_PATH" ]; then
+        echo "$CUSTOM_PATH" > "$FILE_LIST"
+    elif [ "$choice" = "8" ] && [ -n "$AUTO_FILES_LIST" ] && [ -f "$AUTO_FILES_LIST" ]; then
+        # GUI-only mode: re-scan an explicit list of paths (e.g. "scan
+        # just the files flagged malicious last time") rather than
+        # walking a directory. One absolute path per line.
+        cp "$AUTO_FILES_LIST" "$FILE_LIST"
+    else
+        find "$TARGET" -maxdepth 10 \( -path "$QUARANTINE" -prune \) \
+            -o \( -type f \( -name "*.dmg" -o -name "*.zip" -o -name "*.pkg" -o -name "*.app" -o -name "*.rar" \
+                -o -name "*.7z" -o -name "*.tar" -o -name "*.tgz" -o -name "*.tbz2" -o -name "*.txz" \
+                -o -name "*.gz" -o -name "*.bz2" -o -name "*.xz" -o -name "*.iso" \) -print \) 2>/dev/null > "$FILE_LIST"
+    fi
+
+    TOTAL_FILES=$(wc -l < "$FILE_LIST" | tr -d ' ')
+    [ "$TOTAL_FILES" -eq 0 ] && TOTAL_FILES=1
+    [ "$GUI_MODE" -eq 1 ] && printf 'GUI\x1fTOTAL\x1f%s\n' "$TOTAL_FILES"
+    [ "$GUI_MODE" -eq 1 ] && printf 'GUI\x1fSTATUS\x1fRunning ClamAV content scan (this may take a while)...\n'
+
+    run_clamav_batch_scan "$FILE_LIST"
+
+    SCAN_COUNT=0; DETECTED=0; QUARANTINED=0; UNVERIFIED=0
+    SCAN_START_TS=$(date +%s)
+
+    while IFS= read -r file; do
+        [ -z "$file" ] && continue
+        [ ! -f "$file" ] && continue
+
+        SCAN_COUNT=$((SCAN_COUNT + 1))
+        name=$(basename "$file")
+        sha=$(shasum -a 256 "$file" 2>/dev/null | awk '{print $1}')
+        md5=$(md5 -q "$file" 2>/dev/null || echo "N/A")
+        size=$(stat -f%z "$file" 2>/dev/null || stat -c%s "$file" 2>/dev/null || echo "0")
+        file_size_kb=$((size / 1024))
+
+        show_progress "$SCAN_COUNT" "$TOTAL_FILES"
+
+        echo -e "\n${CYAN}[*] #$SCAN_COUNT: $name${NC}"
+        echo "    |-- SHA256: ${sha:0:16}..."
+        echo "    |-- MD5:    ${md5:0:16}..."
+        echo "    +-- Size:   $file_size_kb KB"
+
+        rs_status=$(check_releaseseal_hash "$sha")
+        vt_status="SKIPPED"
+        [ -n "$VT_API_KEY" ] && vt_status=$(check_virustotal_hash "$sha")
+        kb_match=$(check_known_bad_hash "$sha" "$md5")
+        mb_status="SKIPPED"
+        [ -n "$MB_API_KEY" ] && mb_status=$(check_malwarebazaar_hash "$sha")
+        circl_status=$(check_circl_hashlookup "$sha")
+        clamav_status=$(check_clamav_result "$file")
+        sig_status=$(check_code_signature "$file")
+
+        # Deep inspection is real overhead (unzipping/mounting/expanding),
+        # so it only runs when nothing else has a verdict yet - exactly
+        # the case where a repackaged/bundled payload would otherwise
+        # slip through as UNVERIFIED with the outer hash unrecognized.
+        deep_status=""
+        if [ "$rs_status" != "COMPROMISED" ] && [[ "$vt_status" != MALICIOUS:* ]] && \
+           [ -z "$kb_match" ] && [[ "$mb_status" != MALICIOUS:* ]] && \
+           [[ "$clamav_status" != INFECTED:* ]] && [ "$rs_status" != "VERIFIED" ] && \
+           [ "$vt_status" != "CLEAN" ] && [ "$circl_status" != "KNOWN_GOOD" ]; then
+            deep_status=$(inspect_deep_contents "$file")
+        fi
+
+        # PUP only when VirusTotal's PUP-style flag is the SOLE reason -
+        # any other independent source (local list, MalwareBazaar,
+        # ClamAV, deep inspection, ReleaseSeal) keeps the full MALICIOUS
+        # verdict, since those are specific/curated, not general AV
+        # noise the way a single PUP-labeled engine can be.
+        verdict_label="MALICIOUS"
+        if [[ "$vt_status" == PUP:* ]] && [ "$rs_status" != "COMPROMISED" ] && [ -z "$kb_match" ] && \
+           [[ "$mb_status" != MALICIOUS:* ]] && [[ "$clamav_status" != INFECTED:* ]] && [[ "$deep_status" != MALICIOUS:* ]]; then
+            verdict_label="PUP"
+        fi
+
+        if [ "$rs_status" = "COMPROMISED" ] || [[ "$vt_status" == MALICIOUS:* ]] || [[ "$vt_status" == PUP:* ]] || [ -n "$kb_match" ] || [[ "$mb_status" == MALICIOUS:* ]] || [[ "$clamav_status" == INFECTED:* ]] || [[ "$deep_status" == MALICIOUS:* ]]; then
+            if [ "$verdict_label" = "PUP" ]; then
+                echo -e "${ORANGE}    [!] PUP: potentially unwanted, not confirmed malicious (VT=$vt_status)${NC}"
+            else
+                echo -e "${RED}    [!] CRITICAL: flagged malicious (RS=$rs_status VT=$vt_status MB=$mb_status CLAMAV=$clamav_status${deep_status:+ DEEP=$deep_status}${kb_match:+ THREAT-INTEL=$kb_match})${NC}"
+            fi
+            echo "  [!] $verdict_label: $file | $sha | RS=$rs_status VT=$vt_status MB=$mb_status CLAMAV=$clamav_status${deep_status:+ DEEP=$deep_status}${kb_match:+ THREAT-INTEL=$kb_match}" >> "$REPORT"
+            qname="${sha:0:12}_${name}"
+            cp -R "$file" "$QUARANTINE/files/$qname" 2>/dev/null
+            echo "$(date +%Y%m%d_%H%M%S)|$file|$qname|$sha|$verdict_label" >> "$MANIFEST"
+            echo "${sha}|${md5}|$name|$size|$verdict_label" >> "$QUARANTINE/hashes/hashes.txt"
+            DETECTED=$((DETECTED + 1)); QUARANTINED=$((QUARANTINED + 1))
+            echo -e "${GREEN}    [v] AUTO-QUARANTINED (restorable from Quarantine menu)${NC}"
+            gui_detail="flagged malicious"
+            if [ -n "$kb_match" ]; then
+                gui_detail="$kb_match"
+            elif [[ "$mb_status" == MALICIOUS:* ]]; then
+                gui_detail="MalwareBazaar: ${mb_status#MALICIOUS:}"
+            elif [[ "$clamav_status" == INFECTED:* ]]; then
+                gui_detail="ClamAV: ${clamav_status#INFECTED:}"
+            elif [[ "$deep_status" == MALICIOUS:* ]]; then
+                gui_detail="Deep scan: ${deep_status#MALICIOUS:}"
+            elif [ "$rs_status" = "COMPROMISED" ]; then
+                gui_detail="ReleaseSeal: compromised"
+            elif [[ "$vt_status" == PUP:* ]]; then
+                gui_detail="VirusTotal (PUP): ${vt_status#PUP:}"
+            elif [[ "$vt_status" == MALICIOUS:* ]]; then
+                gui_detail="VirusTotal: ${vt_status#MALICIOUS:}"
+            fi
+            [ "$GUI_MODE" -eq 1 ] && printf 'GUI\x1fFILE\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\n' \
+                "$SCAN_COUNT" "$verdict_label" "$name" "$sha" "$file_size_kb" "$gui_detail" "$file"
+        elif [ "$rs_status" = "VERIFIED" ] || [ "$vt_status" = "CLEAN" ] || [ "$circl_status" = "KNOWN_GOOD" ]; then
+            echo -e "${GREEN}    [v] Verified clean (RS=$rs_status VT=$vt_status CIRCL=$circl_status)${NC}"
+            [ "$sig_status" != "N/A" ] && echo -e "${BLUE}    [i] Code signature: $sig_status${NC}"
+            echo "  [v] VERIFIED: $file | SIG=$sig_status" >> "$REPORT"
+            echo "${sha}|${md5}|$name|$size|VERIFIED" >> "$QUARANTINE/hashes/hashes.txt"
+            [ "$GUI_MODE" -eq 1 ] && printf 'GUI\x1fFILE\x1f%s\x1fVERIFIED\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\n' \
+                "$SCAN_COUNT" "$name" "$sha" "$file_size_kb" "$rs_status/$vt_status/$circl_status" "$file"
+        else
+            echo -e "${YELLOW}    [?] UNVERIFIED - no match in ReleaseSeal, VirusTotal, MalwareBazaar, or CIRCL ($rs_status/$vt_status/$mb_status/$circl_status, ClamAV=$clamav_status)${NC}"
+            [ "$sig_status" != "N/A" ] && echo -e "${BLUE}    [i] Code signature: $sig_status${NC}"
+            if [[ "$deep_status" == SUSPICIOUS_SCRIPT:* ]]; then
+                echo -e "${YELLOW}    [?] Installer script warning: ${deep_status#SUSPICIOUS_SCRIPT:} (not auto-quarantined - review manually)${NC}"
+            fi
+            echo "  [?] UNVERIFIED: $file | $sha | SIG=$sig_status${deep_status:+ | DEEP=$deep_status}" >> "$REPORT"
+            echo "${sha}|${md5}|$name|$size|UNVERIFIED" >> "$QUARANTINE/hashes/hashes.txt"
+            UNVERIFIED=$((UNVERIFIED + 1))
+            [ "$GUI_MODE" -eq 1 ] && printf 'GUI\x1fFILE\x1f%s\x1fUNVERIFIED\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\n' \
+                "$SCAN_COUNT" "$name" "$sha" "$file_size_kb" "${sig_status/N\/A/no match}" "$file"
+        fi
+    done < "$FILE_LIST"
+
+    rm -f "$FILE_LIST"
+    [ "$GUI_MODE" -eq 1 ] && printf 'GUI\x1fDONE\x1f%s\x1f%s\x1f%s\x1f%s\n' "$SCAN_COUNT" "$DETECTED" "$UNVERIFIED" "$QUARANTINED"
+
+    echo ""; echo ""
+    echo "========================================"
+    echo "        SCAN COMPLETE"
+    echo "========================================"
+    echo "  Files Scanned:  $SCAN_COUNT"
+    echo "  Threats Found:  $DETECTED"
+    echo "  Unverified:     $UNVERIFIED (no ReleaseSeal/VirusTotal match either way)"
+    echo "  Auto-Quarantine: $QUARANTINED files moved"
+    if [ "$DETECTED" -eq 0 ]; then
+        echo -e "  Status:          ${GREEN}CLEAN${NC}"
+    else
+        echo -e "  Status:          ${RED}THREATS DETECTED${NC}"
+    fi
+    echo "========================================"
+    echo -e "${YELLOW}Note: this checks known-hash databases only. \"Clean\" means${NC}"
+    echo -e "${YELLOW}\"not found in these sources\" - not a guarantee this system${NC}"
+    echo -e "${YELLOW}is free of malware. Not a substitute for macOS's built-in${NC}"
+    echo -e "${YELLOW}protections or a dedicated antivirus product.${NC}"
+
+    {
+        echo ""
+        echo "Files scanned: $SCAN_COUNT"
+        echo "Threats found: $DETECTED"
+        echo "Unverified: $UNVERIFIED"
+        echo "Auto-quarantined: $QUARANTINED"
+        echo ""
+        echo "NOTE: This checks known-hash databases only (ReleaseSeal,"
+        echo "VirusTotal, MalwareBazaar, CIRCL, and a local list tied to"
+        echo "two documented campaigns). A clean result here is NOT a"
+        echo "guarantee this system is free of malware - it does not"
+        echo "replace macOS's built-in protections or a dedicated"
+        echo "antivirus product."
+    } >> "$REPORT"
+
+    echo "Report saved to: $REPORT"
+    echo "Hash log: $QUARANTINE/hashes/hashes.txt"
+    echo "Quarantine folder: $QUARANTINE/files/"
+
+    if [ "$DETECTED" -gt 0 ] && [ -n "$ALERT_EMAIL" ]; then
+        echo -e "${BLUE}[*] Sending email alert to $ALERT_EMAIL...${NC}"
+        send_email_alert "ObscuraLux Unwarez: $DETECTED threat(s) detected" \
+            "ObscuraLux Unwarez scanned $SCAN_COUNT files and quarantined $QUARANTINED.\nFull report: $REPORT"
+    fi
+
+    if [ "$AUTO_MODE" -eq 0 ]; then
+        export_report "$QUARANTINE/hashes/hashes.txt" "$REPORT"
+    fi
+}
+
+show_startup_disclaimer() {
+    banner
+    echo ""
+    echo -e "${YELLOW}========================================${NC}"
+    echo -e "${YELLOW}   IMPORTANT - PLEASE READ${NC}"
+    echo -e "${YELLOW}========================================${NC}"
+    echo "This tool is NOT a complete security solution."
+    echo ""
+    echo "It fills one specific gap: checking files against a handful"
+    echo "of hash-reputation databases (ReleaseSeal, VirusTotal,"
+    echo "MalwareBazaar, CIRCL) and a small list of indicators tied to"
+    echo "two documented campaigns. It does NOT replace:"
+    echo ""
+    echo "  - macOS's own built-in protections (XProtect, Gatekeeper)"
+    echo "  - A real-time / on-access antivirus product"
+    echo "  - Deep content analysis, heuristics, or behavioral detection"
+    echo ""
+    echo "A \"VERIFIED\" or \"CLEAN\" result means \"not found in these"
+    echo "specific databases\" - it is NOT a guarantee the file is safe."
+    echo "New or modified malware these sources haven't seen before"
+    echo "will not be detected. Hash matching only catches exact,"
+    echo "previously-known files."
+    echo ""
+    echo "Use this as one additional layer, not your only layer."
+    echo -e "${YELLOW}========================================${NC}"
+    echo ""
+    read -p "Press ENTER to continue..." _
+}
+
+# ============================================================
+# Entry point
+# ============================================================
+if [ "$AUTO_MODE" -eq 1 ]; then
+    run_scan "$AUTO_TARGET" "$AUTO_PATH"
+    exit 0
+fi
+
+show_startup_disclaimer
+
+while true; do
+    banner
+    echo ""
+    echo "  [1] Run Scan"
+    echo "  [2] Quarantined Files (restore/delete)"
+    echo "  [3] Manage Scheduled Scans"
+    echo "  [4] Settings"
+    echo "  [5] Exit"
+    echo ""
+    read -p "Selection: " main_choice
+    case "$main_choice" in
+        1)
+            run_scan "" ""
+            rc=$?
+            if [ "$rc" -eq 0 ]; then
+                echo ""; read -p "Press ENTER to continue..." _
+            fi
+            ;;
+        2) manage_quarantine ;;
+        3) manage_cron ;;
+        4) settings_menu ;;
+        5) exit 0 ;;
+        *) echo -e "${YELLOW}Invalid selection${NC}"; sleep 1 ;;
+    esac
+done
