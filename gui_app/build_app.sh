@@ -50,6 +50,7 @@ echo "[4/5] Assembling app bundle..."
 cp "$SCRIPT_DIR/Info.plist" "$BUILD_DIR/$BUNDLE_NAME/Contents/Info.plist"
 cp "$SCRIPT_DIR/AppIcon.icns" "$BUILD_DIR/$BUNDLE_NAME/Contents/Resources/AppIcon.icns"
 cp "$SCRIPT_DIR/ObscuraLuxUnwarez.sh" "$BUILD_DIR/$BUNDLE_NAME/Contents/Resources/ObscuraLuxUnwarez"
+cp "$SCRIPT_DIR/ReleaseSealDatabase.json" "$BUILD_DIR/$BUNDLE_NAME/Contents/Resources/ReleaseSealDatabase.json"
 chmod +x "$BUILD_DIR/$BUNDLE_NAME/Contents/Resources/ObscuraLuxUnwarez"
 chmod +x "$BUILD_DIR/$BUNDLE_NAME/Contents/MacOS/$APP_NAME"
 

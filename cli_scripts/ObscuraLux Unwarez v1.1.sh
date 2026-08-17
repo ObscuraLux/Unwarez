@@ -656,11 +656,64 @@ check_code_signature() {
 
 check_inner_hash_safe() {
     local sha="$1"
-    local kb_match rs_status circl_status
+    local kb_match rs_status
     kb_match=$(check_known_bad_hash "$sha" "")
     [ -n "$kb_match" ] && { echo "MALICIOUS:$kb_match"; return 0; }
     rs_status=$(check_releaseseal_hash "$sha")
     [ "$rs_status" = "COMPROMISED" ] && { echo "MALICIOUS:ReleaseSeal"; return 0; }
+    return 1
+}
+
+# Filename+hash match against ReleaseSeal's cataloged helper scripts
+# (e.g. known release-group "open me first" / Gatekeeper-bypass
+# scripts). Used only to suppress a script-warning for an entry
+# ReleaseSeal has already specifically cataloged - an unrecognized
+# script with the same risky pattern still gets flagged.
+check_releaseseal_helper() {
+    local f="$1" fname fhash match
+    [ ! -f "$RELEASESEAL_DB" ] && return 1
+    command -v jq >/dev/null 2>&1 || return 1
+    fname=$(basename "$f")
+    fhash=$(shasum -a 256 "$f" 2>/dev/null | awk '{print $1}')
+    [ -z "$fhash" ] && return 1
+    match=$(jq -r --arg n "$fname" --arg h "$fhash" \
+        '.trustedHelpers[]? | select((.fileName | ascii_downcase) == ($n | ascii_downcase)) | select(any(.sha256[]?; . == $h)) | .label' \
+        "$RELEASESEAL_DB" 2>/dev/null | head -1)
+    [ -n "$match" ] && echo "$match" && return 0
+    return 1
+}
+
+# Code-signing certificate evidence lookup - extracts the signing
+# cert chain and checks each cert's SHA256 fingerprint against
+# ReleaseSeal's trustedCertificates. Evidence only, per the database's
+# own metadata ("allowlist evidence only; compromised entries take
+# precedence") - self-signed certs are trivially reproducible, so a
+# match here is shown to the user, never used to upgrade a verdict to
+# VERIFIED or to skip any other check.
+check_releaseseal_cert() {
+    local file="$1" lowercase
+    [ ! -f "$RELEASESEAL_DB" ] && return 1
+    command -v codesign >/dev/null 2>&1 || return 1
+    command -v openssl >/dev/null 2>&1 || return 1
+    command -v jq >/dev/null 2>&1 || return 1
+    lowercase=$(echo "$file" | tr '[:upper:]' '[:lower:]')
+    case "$lowercase" in
+        *.app|*.pkg) ;;
+        *) return 1 ;;
+    esac
+
+    local certdir certfile certhash label
+    certdir=$(mktemp -d) || return 1
+    ( cd "$certdir" && codesign -dvvv --extract-certificates "$file" ) >/dev/null 2>&1
+    for certfile in "$certdir"/codesign*; do
+        [ -f "$certfile" ] || continue
+        certhash=$(openssl x509 -inform DER -in "$certfile" -outform DER 2>/dev/null | shasum -a 256 | awk '{print $1}')
+        [ -z "$certhash" ] && continue
+        label=$(jq -r --arg h "$certhash" '.trustedCertificates[]? | select(.hash == $h) | .label' "$RELEASESEAL_DB" 2>/dev/null | head -1)
+        [ -n "$label" ] && break
+    done
+    rm -rf "$certdir"
+    [ -n "$label" ] && echo "$label" && return 0
     return 1
 }
 
@@ -735,8 +788,28 @@ inspect_dmg_contents() {
         return 1
     fi
 
-    local result="" count=0
+    local result="" count=0 warn_scripts="" cert_evidence=""
     local inner_file inner_sha inner_result inner_app inner_exec inner_bin
+    local helper_script helper_label
+
+    # Loose top-level helper scripts - release groups commonly ship an
+    # "open me first" / Gatekeeper-bypass script loose next to the .app
+    # rather than inside a .pkg's preinstall/postinstall (which is the
+    # only place inspect_pkg_contents looks for this pattern). Same
+    # heuristic, informational-only design as that check: never
+    # auto-quarantines by itself. A hash+filename match against
+    # ReleaseSeal's cataloged helpers suppresses the warning for that
+    # specific known entry only.
+    while IFS= read -r -d '' helper_script; do
+        helper_label=$(check_releaseseal_helper "$helper_script")
+        [ -n "$helper_label" ] && continue  # known, cataloged release-group helper
+        if grep -qE '(^|[;&|[:space:]])(sudo[[:space:]]+)?(/usr/sbin/)?spctl[[:space:]]+--(master|global)-disable' "$helper_script" 2>/dev/null; then
+            warn_scripts="${warn_scripts}${warn_scripts:+; }disables Gatekeeper"
+        fi
+        if grep -qE 'xattr[[:space:]]+.*com\.apple\.quarantine' "$helper_script" 2>/dev/null; then
+            warn_scripts="${warn_scripts}${warn_scripts:+; }strips quarantine attribute"
+        fi
+    done < <(find "$mountdir" -maxdepth 2 -type f \( -iname "*.command" -o -iname "*.sh" -o -iname "*.tool" \) -print0 2>/dev/null)
 
     # Nested .pkg / .dmg files - hash the container itself
     while IFS= read -r -d '' inner_file; do
@@ -770,6 +843,7 @@ inspect_dmg_contents() {
                 result="${inner_result} (inside $(basename "$inner_app")'s main executable, found in $(basename "$file"))"
                 break
             fi
+            [ -z "$cert_evidence" ] && cert_evidence=$(check_releaseseal_cert "$inner_app")
         done < <(find "$mountdir" -maxdepth 3 -iname "*.app" -type d -print0 2>/dev/null)
     fi
 
@@ -779,6 +853,12 @@ inspect_dmg_contents() {
     if [ -n "$result" ]; then
         echo "$result"
         return 0
+    elif [ -n "$warn_scripts" ]; then
+        echo "SUSPICIOUS_SCRIPT:$warn_scripts"
+        return 2
+    elif [ -n "$cert_evidence" ]; then
+        echo "RS_CERT:$cert_evidence"
+        return 3
     fi
     return 1
 }
@@ -806,8 +886,10 @@ inspect_pkg_contents() {
     # from a hash match, never auto-quarantines by itself). Pattern-
     # matching scripts is exactly the kind of heuristic that produced a
     # real false positive earlier in this tool's history.
-    local script
+    local script helper_label
     while IFS= read -r -d '' script; do
+        helper_label=$(check_releaseseal_helper "$script")
+        [ -n "$helper_label" ] && continue  # known, cataloged release-group helper
         if grep -qE '(^|[;&|[:space:]])(sudo[[:space:]]+)?(/usr/sbin/)?spctl[[:space:]]+--(master|global)-disable' "$script" 2>/dev/null; then
             warn_scripts="${warn_scripts}${warn_scripts:+; }disables Gatekeeper"
         fi
@@ -941,14 +1023,6 @@ done
 
 banner() {
     clear
-    echo -e "${CYAN}                    _..:::.._${NC}"
-    echo -e "${CYAN}                  .:::::/|::::.${NC}"
-    echo -e "${CYAN}                 ::::::/ V|:::::${NC}"
-    echo -e "${CYAN}                ::::::/'  |::::::${NC}"
-    echo -e "${CYAN}                ::::<_,   (:::::;${NC}"
-    echo -e "${CYAN}                 :::::|    \\::::${NC}"
-    echo -e "${CYAN}                  :::/      \\:'${NC}"
-    echo ""
     echo "========================================"
     echo "   ObscuraLux Unwarez v1.1"
     echo "========================================"
@@ -960,6 +1034,7 @@ banner() {
 RELEASESEAL_DB="$QUARANTINE/releaseseal_cache.json"
 RELEASESEAL_API="https://api.github.com/repos/SEALTEAMWORLDWIDE/ReleaseSeal/releases/latest"
 CACHE_TIME="$QUARANTINE/.releaseseal_timestamp"
+RELEASESEAL_SEED="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ReleaseSealDatabase.json"
 
 download_releaseseal_db() {
     echo -e "${BLUE}[*] Checking ReleaseSeal database...${NC}"
@@ -977,6 +1052,11 @@ download_releaseseal_db() {
             curl -sL --connect-timeout 10 --max-time 20 -o "$RELEASESEAL_DB" "https://github.com/SEALTEAMWORLDWIDE/ReleaseSeal/releases/latest/download/evidence.json" 2>/dev/null
         fi
     fi
+    if [ ! -f "$RELEASESEAL_DB" ] || [ ! -s "$RELEASESEAL_DB" ]; then
+        # Live download unavailable/offline - fall back to the bundled
+        # seed database rather than running with no ReleaseSeal coverage.
+        [ -f "$RELEASESEAL_SEED" ] && cp "$RELEASESEAL_SEED" "$RELEASESEAL_DB" 2>/dev/null
+    fi
     if [ -f "$RELEASESEAL_DB" ] && [ -s "$RELEASESEAL_DB" ]; then
         date +%s > "$CACHE_TIME"
         echo -e "${GREEN}[v] ReleaseSeal database loaded${NC}"
@@ -987,15 +1067,62 @@ download_releaseseal_db() {
 }
 
 check_releaseseal_hash() {
-    local hash="$1"
+    local hash="$1" md5hash="${2:-}"
     [ ! -f "$RELEASESEAL_DB" ] && echo "OFFLINE" && return 1
     if command -v jq >/dev/null 2>&1; then
         v=$(jq -r --arg h "$hash" '.verifiedArtifacts[]? | select(.hash == $h) | "VERIFIED"' "$RELEASESEAL_DB" 2>/dev/null | head -1)
         [ -n "$v" ] && echo "VERIFIED" && return 0
-        c=$(jq -r --arg h "$hash" '.compromised[]? | select(.hash == $h) | "COMPROMISED"' "$RELEASESEAL_DB" 2>/dev/null | head -1)
+        c=$(jq -r --arg h "$hash" --arg m "$md5hash" \
+            '.compromised[]? | select(.hash == $h or (($m | length) > 0 and .hash == $m)) | "COMPROMISED"' \
+            "$RELEASESEAL_DB" 2>/dev/null | head -1)
         [ -n "$c" ] && echo "COMPROMISED" && return 2
     fi
     echo "UNKNOWN"; return 1
+}
+
+# ============================================================
+# Brokenstones badfiles list - community-maintained MD5 corpus of
+# known-malicious warez/cracked-installer repacks (same shape as the
+# embedded KNOWN_BAD_MD5 list above, but live-updated). Checked as an
+# independent free/local-cache source, same caching pattern as
+# ReleaseSeal above.
+# ============================================================
+BADFILES_URL="https://brokenstones.is/static/scripts/badfiles.txt"
+BADFILES_CACHE="$QUARANTINE/badfiles_cache.txt"
+BADFILES_CACHE_TIME="$QUARANTINE/.badfiles_timestamp"
+
+download_badfiles_list() {
+    echo -e "${BLUE}[*] Checking badfiles list...${NC}"
+    if [ -f "$BADFILES_CACHE_TIME" ]; then
+        cache_age=$(($(date +%s) - $(cat "$BADFILES_CACHE_TIME")))
+        if [ "$cache_age" -lt 86400 ] && [ -f "$BADFILES_CACHE" ]; then
+            echo -e "${GREEN}[v] Using cached badfiles list (${cache_age}s old)${NC}"
+            return 0
+        fi
+    fi
+    if command -v curl >/dev/null 2>&1; then
+        curl -sL --connect-timeout 10 --max-time 20 -o "$BADFILES_CACHE" "$BADFILES_URL" 2>/dev/null
+    fi
+    if [ -f "$BADFILES_CACHE" ] && [ -s "$BADFILES_CACHE" ]; then
+        date +%s > "$BADFILES_CACHE_TIME"
+        echo -e "${GREEN}[v] Badfiles list loaded${NC}"
+    else
+        echo -e "${YELLOW}[!] Badfiles list unavailable - offline mode${NC}"
+        rm -f "$BADFILES_CACHE" 2>/dev/null
+    fi
+}
+
+# Exact MD5 token match against the "<hash> <label>" lines in the
+# cached list - same exact-match design as check_known_bad_hash
+# (near-zero false-positive risk since it's hash equality, not
+# content/name scanning).
+check_badfiles_hash() {
+    local md5="$1" label
+    { [ -z "$md5" ] || [ "$md5" = "N/A" ]; } && return 1
+    [ ! -f "$BADFILES_CACHE" ] && return 1
+    label=$(awk -v h="$md5" '$1 == h { $1=""; sub(/^ /,""); print; exit }' "$BADFILES_CACHE" 2>/dev/null)
+    [ -n "$label" ] && echo "brokenstones.is: $label" && return 0
+    return 1
 }
 
 # ============================================================
@@ -1394,6 +1521,7 @@ run_scan() {
     echo ""
     echo -e "${BLUE}[*] Initializing scan...${NC}"
     download_releaseseal_db
+    download_badfiles_list
     if [ -n "$VT_API_KEY" ]; then
         echo -e "${BLUE}[*] VirusTotal lookups enabled (public API rate limits apply)${NC}"
     fi
@@ -1448,15 +1576,21 @@ run_scan() {
         echo "    |-- MD5:    ${md5:0:16}..."
         echo "    +-- Size:   $file_size_kb KB"
 
-        rs_status=$(check_releaseseal_hash "$sha")
+        # ReleaseSeal, the local known-bad-hash list, the badfiles.txt
+        # feed, and ClamAV are all free/local (no rate-limited network
+        # round-trip) - checked first, ahead of the rate-limited
+        # VirusTotal/MalwareBazaar lookups.
+        rs_status=$(check_releaseseal_hash "$sha" "$md5")
+        kb_match=$(check_known_bad_hash "$sha" "$md5")
+        [ -z "$kb_match" ] && kb_match=$(check_badfiles_hash "$md5")
+        clamav_status=$(check_clamav_result "$file")
         vt_status="SKIPPED"
         [ -n "$VT_API_KEY" ] && vt_status=$(check_virustotal_hash "$sha")
-        kb_match=$(check_known_bad_hash "$sha" "$md5")
         mb_status="SKIPPED"
         [ -n "$MB_API_KEY" ] && mb_status=$(check_malwarebazaar_hash "$sha")
         circl_status=$(check_circl_hashlookup "$sha")
-        clamav_status=$(check_clamav_result "$file")
         sig_status=$(check_code_signature "$file")
+        rs_cert=$(check_releaseseal_cert "$file")
 
         deep_status=""
         if [ "$rs_status" != "COMPROMISED" ] && [[ "$vt_status" != MALICIOUS:* ]] && \
@@ -1493,15 +1627,19 @@ run_scan() {
         elif [ "$rs_status" = "VERIFIED" ] || [ "$vt_status" = "CLEAN" ] || [ "$circl_status" = "KNOWN_GOOD" ]; then
             echo -e "${GREEN}    [v] Verified clean (RS=$rs_status VT=$vt_status CIRCL=$circl_status)${NC}"
             [ "$sig_status" != "N/A" ] && echo -e "${BLUE}    [i] Code signature: $sig_status${NC}"
-            echo "  [v] VERIFIED: $file | SIG=$sig_status" >> "$REPORT"
+            [ -n "$rs_cert" ] && echo -e "${BLUE}    [i] Known release certificate: $rs_cert (ReleaseSeal evidence only)${NC}"
+            echo "  [v] VERIFIED: $file | SIG=$sig_status${rs_cert:+ | RS_CERT=$rs_cert}" >> "$REPORT"
             echo "${sha}|${md5}|$name|$size|VERIFIED" >> "$QUARANTINE/hashes/hashes.txt"
         else
             echo -e "${YELLOW}    [?] UNVERIFIED - no match in ReleaseSeal, VirusTotal, MalwareBazaar, or CIRCL ($rs_status/$vt_status/$mb_status/$circl_status, ClamAV=$clamav_status)${NC}"
             [ "$sig_status" != "N/A" ] && echo -e "${BLUE}    [i] Code signature: $sig_status${NC}"
+            [ -n "$rs_cert" ] && echo -e "${BLUE}    [i] Known release certificate: $rs_cert (ReleaseSeal evidence only)${NC}"
             if [[ "$deep_status" == SUSPICIOUS_SCRIPT:* ]]; then
-                echo -e "${YELLOW}    [?] Installer script warning: ${deep_status#SUSPICIOUS_SCRIPT:} (not auto-quarantined - review manually)${NC}"
+                echo -e "${YELLOW}    [?] Script warning: ${deep_status#SUSPICIOUS_SCRIPT:} (not auto-quarantined - review manually)${NC}"
+            elif [[ "$deep_status" == RS_CERT:* ]]; then
+                echo -e "${BLUE}    [i] Known release certificate: ${deep_status#RS_CERT:} (ReleaseSeal evidence only)${NC}"
             fi
-            echo "  [?] UNVERIFIED: $file | $sha | SIG=$sig_status${deep_status:+ | DEEP=$deep_status}" >> "$REPORT"
+            echo "  [?] UNVERIFIED: $file | $sha | SIG=$sig_status${rs_cert:+ | RS_CERT=$rs_cert}${deep_status:+ | DEEP=$deep_status}" >> "$REPORT"
             echo "${sha}|${md5}|$name|$size|UNVERIFIED" >> "$QUARANTINE/hashes/hashes.txt"
             UNVERIFIED=$((UNVERIFIED + 1))
         fi
