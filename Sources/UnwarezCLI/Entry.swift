@@ -28,7 +28,9 @@ struct UnwarezCLIEntry {
                 exit(1)
             }
             let options = ScanOptions(target: target, customPath: customPath, fileListPath: filesList, isAutoMode: true)
-            _ = await ScanRunner.run(options: options, verbose: false)
+            if let summary = await ScanRunner.run(options: options, verbose: false) {
+                ScanRunner.printSummary(summary)
+            }
             exit(0)
         }
 

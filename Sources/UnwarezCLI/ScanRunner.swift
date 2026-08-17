@@ -4,6 +4,12 @@ import UnwarezCore
 /// Drives `ScanPipeline` and prints its event stream to the terminal.
 /// Shared between `--auto` (cron/launchd) mode and the interactive menu.
 enum ScanRunner {
+    /// `verbose` only gates progress *chatter* (the "[*] Checking..."
+    /// status lines and the file-count announcement) - every scanned
+    /// file's result (malicious, PUP, verified, or unverified alike) is
+    /// always printed regardless, in both interactive and --auto/cron
+    /// mode. A cron log should still be a complete record of what was
+    /// scanned, not just its progress narration.
     @discardableResult
     static func run(options: ScanOptions, verbose: Bool) async -> ScanSummary? {
         let pipeline = ScanPipeline()
@@ -21,7 +27,7 @@ enum ScanRunner {
                 if verbose { print("\(Terminal.blue)[*] \(total) file(s) to scan\(Terminal.reset)") }
             case .file(let result):
                 count += 1
-                if verbose { printResult(result, count: count, total: total) }
+                printResult(result, count: count, total: total)
             case .done(let value):
                 summary = value
             }

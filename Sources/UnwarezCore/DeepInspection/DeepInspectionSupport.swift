@@ -86,6 +86,36 @@ enum DeepInspectionSupport {
         }
     }
 
+    /// Hashes an inner file found during extraction, checks it against
+    /// `checker` (local lists + budget-limited VT/MalwareBazaar), and -
+    /// if that comes back clean and the file is itself archive-shaped
+    /// (a zip inside a zip, a .pkg inside a .dmg, etc.) - recurses into
+    /// it via `recurse`, the enclosing `DeepInspector.inspect(path:
+    /// depth:)`. Centralizing this (rather than duplicating hash-check-
+    /// then-maybe-recurse in each of the four inspectors' inner loops)
+    /// is what makes recursion "just work" everywhere inner files get
+    /// examined, with one place to get the depth right.
+    ///
+    /// Returns the nested result's label as-is, unwrapped - each
+    /// inspector's own call site already appends its own "(inside X)"
+    /// as the result bubbles back up one level at a time, so by the time
+    /// a 3-deep match reaches the top it reads as a full chain (e.g.
+    /// "... (inside malicious.bin in package payload) (inside
+    /// payload.pkg) (inside wrapper.zip)") without this helper doubling
+    /// any one level's annotation.
+    static func checkInner(
+        _ file: URL, checker: any InnerHashChecking, depth: Int,
+        recurse: @Sendable (String, Int) async -> DeepInspectionResult
+    ) async -> DeepInspectionResult {
+        guard let sha = Hashing.sha256(ofFileAt: file) else { return .clean }
+        let md5 = Hashing.md5(ofFileAt: file) ?? ""
+        if case .malicious(let label) = await checker.check(sha256: sha, md5: md5, path: file.path) {
+            return .malicious(label)
+        }
+        guard DeepInspector.isArchiveLike(file.path) else { return .clean }
+        return await recurse(file.path, depth + 1)
+    }
+
     /// Gatekeeper-disable / quarantine-strip pattern checks, shared by the
     /// dmg and pkg inspectors' loose-helper-script scanning.
     static func scriptWarnings(contentsOf text: String) -> [String] {

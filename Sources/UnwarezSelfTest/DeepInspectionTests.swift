@@ -16,6 +16,7 @@ enum DeepInspectionTests {
         await testDMG()
         await testPKG()
         await testUnarArchive()
+        await testNestedArchiveRecursion()
     }
 
     private static func testZip() async {
@@ -117,5 +118,53 @@ enum DeepInspectionTests {
         } else {
             await TestKit.shared.expect(false, "archive: expected .malicious, got \(result)")
         }
+    }
+
+    /// A zip containing a zip containing a pkg containing the planted
+    /// file - proves inspection actually recurses through nested
+    /// containers rather than only hash-checking the outer wrapper of
+    /// each nested file (which would never match, since only the
+    /// innermost payload's hash is in the threat-intel list).
+    private static func testNestedArchiveRecursion() async {
+        let plantedContent = Data("planted malicious payload for nested-archive test".utf8)
+        let plantedHash = UnwarezCore.Hashing.sha256(of: plantedContent)
+
+        guard let pkgURL = try? Fixtures.makePKG(plantedFilename: "malicious.bin", content: plantedContent) else {
+            await TestKit.shared.expect(false, "nested: could not build innermost .pkg fixture")
+            return
+        }
+        defer { try? FileManager.default.removeItem(at: pkgURL) }
+
+        guard let pkgData = try? Data(contentsOf: pkgURL),
+              let innerZipURL = try? Fixtures.makeZip(plantedFilename: "payload.pkg", content: pkgData) else {
+            await TestKit.shared.expect(false, "nested: could not build middle .zip fixture")
+            return
+        }
+        defer { try? FileManager.default.removeItem(at: innerZipURL) }
+
+        guard let innerZipData = try? Data(contentsOf: innerZipURL),
+              let outerZipURL = try? Fixtures.makeZip(plantedFilename: "wrapper.zip", content: innerZipData) else {
+            await TestKit.shared.expect(false, "nested: could not build outer .zip fixture")
+            return
+        }
+        defer { try? FileManager.default.removeItem(at: outerZipURL) }
+
+        let checker = MockInnerHashChecker()
+        await checker.flag(sha256: plantedHash, label: "test-malware")
+        let inspector = DeepInspector(innerHashChecker: checker)
+
+        let result = await inspector.inspect(path: outerZipURL.path)
+        if case .malicious(let detail) = result {
+            await TestKit.shared.expect(detail.contains("test-malware"), "nested: zip>zip>pkg planted file found through 3 levels of recursion (detail: \(detail))")
+        } else {
+            await TestKit.shared.expect(false, "nested: expected .malicious from 3-level-deep recursion, got \(result)")
+        }
+
+        // Same nesting shape, nothing planted-hash matches - must come
+        // back clean rather than false-flagging on the recursion itself.
+        let cleanChecker = MockInnerHashChecker()
+        let cleanInspector = DeepInspector(innerHashChecker: cleanChecker)
+        let cleanResult = await cleanInspector.inspect(path: outerZipURL.path)
+        await TestKit.shared.expectEqual(cleanResult, .clean, "nested: same 3-level nesting with no flagged hash comes back clean (no false positive)")
     }
 }

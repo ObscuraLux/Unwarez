@@ -3,7 +3,7 @@ import Foundation
 struct ZipInspector {
     let innerHashChecker: any InnerHashChecking
 
-    func inspect(path: String) async -> DeepInspectionResult {
+    func inspect(path: String, depth: Int, recurse: @Sendable (String, Int) async -> DeepInspectionResult) async -> DeepInspectionResult {
         guard FileManager.default.isExecutableFile(atPath: "/usr/bin/unzip") else { return .clean }
         guard DeepInspectionSupport.fileSize(at: path) <= 536_870_912 else { return .clean } // skip >512MB
 
@@ -20,9 +20,8 @@ struct ZipInspector {
         guard DeepInspectionSupport.directorySizeKB(workdir) <= 1_048_576 else { return .clean }
 
         for inner in DeepInspectionSupport.regularFiles(under: workdir, limit: 200) {
-            guard let sha = Hashing.sha256(ofFileAt: inner) else { continue }
-            let md5 = Hashing.md5(ofFileAt: inner) ?? ""
-            if case .malicious(let label) = await innerHashChecker.check(sha256: sha, md5: md5, path: inner.path) {
+            let result = await DeepInspectionSupport.checkInner(inner, checker: innerHashChecker, depth: depth, recurse: recurse)
+            if case .malicious(let label) = result {
                 return .malicious("\(label) (inside \(inner.lastPathComponent))")
             }
         }

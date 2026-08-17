@@ -4,7 +4,7 @@ struct DMGInspector {
     let innerHashChecker: any InnerHashChecking
     let releaseSeal: ReleaseSealClient
 
-    func inspect(path: String) async -> DeepInspectionResult {
+    func inspect(path: String, depth: Int, recurse: @Sendable (String, Int) async -> DeepInspectionResult) async -> DeepInspectionResult {
         guard FileManager.default.isExecutableFile(atPath: "/usr/bin/hdiutil") else { return .clean }
         guard DeepInspectionSupport.fileSize(at: path) <= 1_073_741_824 else { return .clean } // skip >1GB
 
@@ -45,9 +45,8 @@ struct DMGInspector {
         for inner in DeepInspectionSupport.find(under: mountDir, maxDepth: 4, wantDirectories: false, extensions: ["pkg", "dmg"]) {
             count += 1
             if count > 30 { break }
-            guard let sha = Hashing.sha256(ofFileAt: inner) else { continue }
-            let md5 = Hashing.md5(ofFileAt: inner) ?? ""
-            if case .malicious(let label) = await innerHashChecker.check(sha256: sha, md5: md5, path: inner.path) {
+            let result = await DeepInspectionSupport.checkInner(inner, checker: innerHashChecker, depth: depth, recurse: recurse)
+            if case .malicious(let label) = result {
                 maliciousResult = "\(label) (inside \(inner.lastPathComponent), found in \(outerName))"
                 break
             }
