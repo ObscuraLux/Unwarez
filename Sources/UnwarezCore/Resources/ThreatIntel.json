@@ -1,0 +1,703 @@
+{
+  "sha256": [
+    {
+      "hash": "4ccb76cedc3508e40f041694efcb7996067ef6a3ccba2dd917354cc971c23f89",
+      "label": "xdivcmp: fake Microsoft_365_and_Office_16.112.26081010.dmg"
+    },
+    {
+      "hash": "feb1e99197f216ea39800ff3672c05b838e909c31ef2c7d20d166c53754f300b",
+      "label": "xdivcmp: fake Microsoft_Office_LTSC_2024_VL_Serializer.pkg"
+    },
+    {
+      "hash": "ef7d259344d1662f35c94312e580fd95898fe5f4af2202270d991b890c5e6fb6",
+      "label": "xdivcmp: first-stage universal Mach-O"
+    },
+    {
+      "hash": "659b1c995f4813bce2e1089b770fe4a72071f6de756945892e3920f3fe2ed692",
+      "label": "xdivcmp: fake Ableton Live 12 Suite v12.4.3 U2B macOS.dmg"
+    },
+    {
+      "hash": "a2e9ba4c4e8410ac6c8d7b1326735a75ce96776fdf8f5e31173c02489c58c641",
+      "label": "xdivcmp: fake Ableton Live 12 Suite v12.4.3 U2B macOS Patch.pkg"
+    },
+    {
+      "hash": "0174997b7eaa81de686d2f22534d8684a698bd1388ed7f15430f8b881ad32f1c",
+      "label": "xdivcmp: Ableton-bundled first-stage Mach-O"
+    },
+    {
+      "hash": "492394a8ea9ea6c610f75014659b21c8d24ecd46dae6dff905996ecf892914a2",
+      "label": "xdivcmp: fake Archicad v29.2.0 INT_RU ARM.dmg"
+    },
+    {
+      "hash": "47c8745f973b692a1c5116bff581baaa397e13b3f4836dc434345bc0aac2be55",
+      "label": "xdivcmp: fake Archicad v29.2.0 ARM Patch.pkg"
+    },
+    {
+      "hash": "92b0ee7ffaacdc0eeac0c578346321ae76dc8e4f5ca94a313313934a91c1ca20",
+      "label": "xdivcmp: fake Archicad delivery Setup payload"
+    },
+    {
+      "hash": "74547770894edeac338423ab0a5c6e848a07ebc1afb671620684206a669c463e",
+      "label": "xdivcmp: fake Adobe Illustrator v30.4.0 Activation Tool.dmg"
+    },
+    {
+      "hash": "8501f0eb06761e74eab0bebabbc22b8d46377173a21063b39724e169aff432d2",
+      "label": "xdivcmp: fake Creative Cloud Desktop v6.8.1 (Illustrator v30.4.0 delivery)"
+    },
+    {
+      "hash": "b67fb12dcf034062b6b76e9a8b0711270686fe1a5c340582ce1c905aaa95e650",
+      "label": "xdivcmp: fake Adobe Illustrator v30.5.1 Activation Tool.dmg"
+    },
+    {
+      "hash": "f8e9d73df8e82ca4c9f0459e4559f1e716748f80e45e6f8851cc48fca9e3b9b7",
+      "label": "xdivcmp: fake Creative Cloud Desktop v6.8.1 (Illustrator v30.5.1 delivery)"
+    },
+    {
+      "hash": "bab1b1743bbfc0b36565728d202415574028072054777260060cb524f798ca16",
+      "label": "xdivcmp/Odyssey: first-stage universal Mach-O (unix001)"
+    },
+    {
+      "hash": "254e10143ae7153f74fd92bccb536d6174980c9a9edd571df5b569955ee5e129",
+      "label": "xdivcmp/Odyssey: associated artifact"
+    },
+    {
+      "hash": "234bb752e806b4a5196bd6a6d34b15ebb0fbe273e6ccb6eab5d6c5dcd6309d69",
+      "label": "xdivcmp/Odyssey: associated artifact"
+    },
+    {
+      "hash": "227e5a628ac131e4825d2a5fa8a7a051742a8c304f5cbdb06a3858b0e88c5054",
+      "label": "xdivcmp/Odyssey: second-stage AppleScript (getscptraw)"
+    },
+    {
+      "hash": "33a89db6eea3b3b01e56439de1e40d0ca542bc1938a994485c44d6037e113739",
+      "label": "xdivcmp/Odyssey: SOCKS5 component"
+    },
+    {
+      "hash": "b5c06c04a75a7fa6fb54a65e55ddbf1c155073ad0d92b2da685470c31e20d298",
+      "label": "xdivcmp/Odyssey: associated artifact"
+    },
+    {
+      "hash": "0ff3053d9a6f510b788f7c3a84b75a14cc98e56adde725cf7617161d3bcf8723",
+      "label": "xdivcmp/Odyssey: associated artifact"
+    },
+    {
+      "hash": "4bab216dadd5b1431717f1a5147c29bcfea636044946a05fb675da78b8523632",
+      "label": "OGF: malicious 'Open Gatekeeper Friendly' binary"
+    },
+    {
+      "hash": "a6821d95007d2877cd66e0044d21d9052747b2a4e47edbd3b48cbb75d990d3ce",
+      "label": "OGF: malicious 'Open Gatekeeper Friendly' binary"
+    },
+    {
+      "hash": "dd7dbbb66ff8453aff457e8ae74c9b0e1987c6106d2ad3f58435d7af5d49dc09",
+      "label": "OGF: malicious 'Open Gatekeeper Friendly' binary"
+    },
+    {
+      "hash": "3120e8bad3dec99d34ee0fdc0df76fe8c3da71544b38fa6bbb24a123374d3dea",
+      "label": "OGF: malicious 'Open Gatekeeper Friendly' binary"
+    },
+    {
+      "hash": "d80b443ae39b4bc7e767f1f8ab4846dd65b874ac59ec483e3858b9c805473f54",
+      "label": "OGF: malicious 'Open Gatekeeper Friendly' binary"
+    },
+    {
+      "hash": "864d183968a47b01f099a3e6be956833ff720c0473bd46b61174401bea07dbbd",
+      "label": "OGF: malicious 'Open Gatekeeper Friendly' binary"
+    },
+    {
+      "hash": "a4d29aa32fbec60fcdba47515c6d39dac9a6a880edd454dccf10006df2b3bca8",
+      "label": "OGF: malicious 'Open Gatekeeper Friendly' binary"
+    },
+    {
+      "hash": "736afa6e409219cf79910b5f5101a76da563453aee74f0d38371ee376546b85f",
+      "label": "OGF: malicious 'Open Gatekeeper Friendly' binary"
+    },
+    {
+      "hash": "5d5f04445e80db9841c9e78bee1a81a89c71cba47e053853fdedf29fd66d8437",
+      "label": "OGF: malicious 'Open Gatekeeper Friendly' binary"
+    },
+    {
+      "hash": "1e39d447b073d4f95a6949d18bdc8580facaa28b0b7a2085adf0724899750905",
+      "label": "OGF: malicious 'Open Gatekeeper Friendly' binary"
+    },
+    {
+      "hash": "54c6600f76f291e4455716beacd6516866d005a38ce4ef966e3080aa03ea2d0f",
+      "label": "OGF: malicious 'Open Gatekeeper Friendly' binary"
+    },
+    {
+      "hash": "15b8627fb6d34403056b8c30393a2b7e16c85546acd75aa52375818f47647b9c",
+      "label": "OGF: malicious 'Open Gatekeeper Friendly' binary"
+    },
+    {
+      "hash": "6be9ef2aa180560b63588c0caf19ec36a35e05776396d835c6faca6624908c8f",
+      "label": "OGF: malicious 'Open Gatekeeper Friendly' binary"
+    },
+    {
+      "hash": "a8e772f4e98fc7038de48c9a8ebf74b0d192c550503710a762f5aa68167402f8",
+      "label": "OGF: malicious 'Open Gatekeeper Friendly' binary"
+    },
+    {
+      "hash": "f2ca9f8e5f8b3a3b5ba6d6c7cef3e048e3638c0ba14c97787111be66f74d292f",
+      "label": "OGF: malicious 'Open Gatekeeper Friendly' binary"
+    },
+    {
+      "hash": "841d76ddcb9460c32e0238aaab24100747375612733ac5634c8e03af56b4e990",
+      "label": "OGF: malicious 'Open Gatekeeper Friendly' binary"
+    },
+    {
+      "hash": "0f1317f82cd35ab6ec90065b4a6c071665ac3031827e6a3ccc3abe7606f430a6",
+      "label": "OGF: malicious 'Open Gatekeeper Friendly' binary"
+    },
+    {
+      "hash": "c0ad0f9cccd9db5a374f626cbef7ca169e20ecd53010823c7ce57fdd356f383d",
+      "label": "OGF: malicious 'Open Gatekeeper Friendly' binary"
+    },
+    {
+      "hash": "7c5ccd13f9d7815defff28a1b9dffc89c823465a4e478f0e57cf5c6705f0095b",
+      "label": "OGF: malicious 'Open Gatekeeper Friendly' binary"
+    },
+    {
+      "hash": "6e97b23d16aa4aa25d0cfaf9e40fae87e99e0ffe1153830195d08cff26311ce6",
+      "label": "OGF: malicious 'Open Gatekeeper Friendly' binary"
+    },
+    {
+      "hash": "ae74c18f5a03ff6645bdc264d45d2831120b9068c6be6e867da3d08cc319d5f0",
+      "label": "OGF: malicious 'Open Gatekeeper Friendly' binary"
+    },
+    {
+      "hash": "8169d6a6d8a02be8dcfcffcdfe5a93b7eb1191d8aac7146a53855dc8e5869913",
+      "label": "OGF: malicious 'Open Gatekeeper Friendly' binary"
+    },
+    {
+      "hash": "9b500839cfcdefff92257edb6e148d2d3860ab8453b5c8c0114ea0278bed5c96",
+      "label": "OGF: malicious 'Open Gatekeeper Friendly' binary"
+    },
+    {
+      "hash": "bc43cfc965007bb7d5cef72c453fc5b202d42df35834d1c63ae5fcc7f51d42d5",
+      "label": "OGF: malicious 'Open Gatekeeper Friendly' binary"
+    },
+    {
+      "hash": "bef42ce20a0a8954137c36a930adb40d452179729ba546e5baf0414234d3421a",
+      "label": "OGF: malicious remote payload"
+    },
+    {
+      "hash": "efd545c5195bf73e3c7e7e54068c622d3961d56cd177c44bcd5721ee131df08a",
+      "label": "OGF: malicious remote payload"
+    },
+    {
+      "hash": "e751591cf46159bb61a7b9237ef93ec181f9609d06fc0dc0522016d6c60e9629",
+      "label": "OGF: malicious remote payload"
+    },
+    {
+      "hash": "f6d411e35f29097b4873b662574f29cc0157ad1523400b88e49e81ad5cdaf595",
+      "label": "OGF: malicious remote payload"
+    },
+    {
+      "hash": "ea6e7458e4e72cd006fae9c40e9edf06272e0ea41fcc2d4cbcf4a1720bc13775",
+      "label": "OGF: malicious remote payload"
+    },
+    {
+      "hash": "0c95b2b99789ca29f0b3ce3674ecfd7a3fdca36ff57060e7c7a0cb10f120bcac",
+      "label": "OGF: malicious remote payload"
+    },
+    {
+      "hash": "7e5751ca3b8a9a0e747fcab8665a5c98a73bd20214fdf23c8914cc81f6877fc7",
+      "label": "OGF: malicious remote payload"
+    },
+    {
+      "hash": "2ce574b3c03b2562b4f2303b5e7a4f262868913d01957689f2fdf40a3ab352f1",
+      "label": "OGF: malicious remote payload"
+    },
+    {
+      "hash": "ca862dec6ca4a74f2fafb53d510bad504f515f5e773ea1060206252007c59d98",
+      "label": "OGF: malicious remote payload"
+    },
+    {
+      "hash": "fe8b1b5b0ca9e7a95b33d3fcced833c1852c5a16662f71ddea41a97181532b14",
+      "label": "OGF: malicious remote payload"
+    }
+  ],
+  "md5": [
+    {
+      "hash": "0041b628e66c59e25f2dac8a95405931",
+      "label": "OGF-infected release: zBrush 2024.0.2.dmg"
+    },
+    {
+      "hash": "030f983c60b498e199d6f0d2629186f0",
+      "label": "OGF-infected release: Topaz Gigapixel AI 7.4.4.dmg"
+    },
+    {
+      "hash": "03d5652905093b4561925d418a5a5e21",
+      "label": "OGF-infected release: BetterZip 5.4 [TNT].dmg"
+    },
+    {
+      "hash": "0515cd770e83e1cdf877dce4ea83176f",
+      "label": "OGF-infected release: Adobe Acrobat DC 24.005.20320.7 SICE.dmg"
+    },
+    {
+      "hash": "0681496c1c5e0d922c2621f9d75bc8b1",
+      "label": "OGF-infected release: Blackmagic Design DaVinci Resolve Studio 19.0.0.dmg"
+    },
+    {
+      "hash": "0a9d1c1182cb0365249c258d225d80a7",
+      "label": "OGF-infected release: Adobe After Effects 25.1.dmg"
+    },
+    {
+      "hash": "0d98df0fc37f039a9d83bead40e638bd",
+      "label": "OGF-infected release: Capture_One_Pro_16.5.0.29_[TNT].dmg"
+    },
+    {
+      "hash": "11597e52af783daead3ca7b20c02174e",
+      "label": "OGF-infected release: RipX.DAW.PRO.7.5.1.dmg"
+    },
+    {
+      "hash": "143c373f1f4bc121c1ae164b04f0c101",
+      "label": "OGF-infected release: SketchUp_2024_598-243_(24.0.598)_[TNT].dmg"
+    },
+    {
+      "hash": "1770ca98ae752169f50379c28b11f40c",
+      "label": "OGF-infected release: SILKYPIX.JPEG.Photography.11E.TNT.dmg"
+    },
+    {
+      "hash": "18590ff4d9eb846e9db01ab2cfd6537f",
+      "label": "OGF-infected release: CleanMyMac_5 5.0.3.dmg"
+    },
+    {
+      "hash": "1b7314ca609aaf5fc3803e6e8f3921ef",
+      "label": "OGF-infected release: Camtasia_2025.0.0_[TNT].dmg"
+    },
+    {
+      "hash": "2646ce944459c3c7d76982f074ef59ba",
+      "label": "OGF-infected release: Capture_One_Pro_16.5.1.14_[TNT].dmg"
+    },
+    {
+      "hash": "277903ae4a92fdeb120ce4ded0fbad8f",
+      "label": "OGF-infected release: Pro Microphone 1.7.0.dmg"
+    },
+    {
+      "hash": "2b61e7da811ffe0b21f77ee0e87f4af4",
+      "label": "OGF-infected release: CleanMyMac_5 5.0.5 .dmg"
+    },
+    {
+      "hash": "2e491eb7f31cd46dbac2196e45fee061",
+      "label": "OGF-infected release: Autodesk Maya 2025 202402161156 (0caf8d1269).dmg"
+    },
+    {
+      "hash": "301caf8fef80ac87b3c94b90dddc5d5b",
+      "label": "OGF-infected release: CleanMyMac_5_5.0.5 .dmg"
+    },
+    {
+      "hash": "32c2a42ed4772ad8773746b9c3ed774a",
+      "label": "OGF-infected release: Install_Waves_Central.dmg"
+    },
+    {
+      "hash": "3396c6e4d56a0266b054548d6e2b8586",
+      "label": "OGF-infected release: Perfectly_Clear_Workbench_v4_4_6_1_TNT.dmg"
+    },
+    {
+      "hash": "33b473f553b60d4472d7a9a59af18324",
+      "label": "OGF-infected release: Rhino 8.12.24282 macOS.dmg"
+    },
+    {
+      "hash": "3545fb900228dbfe9480fe0b9e40cc47",
+      "label": "OGF-infected release: iZotope Neutron 4 v4.6.0 macOS.dmg"
+    },
+    {
+      "hash": "35bc532aa6f481343a567eb46a8fabaf",
+      "label": "OGF-infected release: Perfectly Clear Workbench 4.6.1 2711.dmg"
+    },
+    {
+      "hash": "380c4478fbda2aabf2f163e0db7e4bed",
+      "label": "OGF-infected release: XLN_Audio_XO_1.7.1.dmg"
+    },
+    {
+      "hash": "38e61a9f966dc748ad93f495bac4a006",
+      "label": "OGF-infected release: Downie_4_4.8.13.dmg"
+    },
+    {
+      "hash": "3956fcb658976ebb656a00991be70062",
+      "label": "OGF-infected release: Magic.Disk.Cleaner.2.10.1.TNT.dmg"
+    },
+    {
+      "hash": "3a3f8829dee2c1187919cd10f31f6ce4",
+      "label": "OGF-infected release: Valentina Studio 14.7.1.dmg"
+    },
+    {
+      "hash": "3a4c7b4100da50ee20a759e9778adf45",
+      "label": "OGF-infected release: PullTube 1.8.5.54.dmg"
+    },
+    {
+      "hash": "3baf2cdac31706752c00bc736e6b6962",
+      "label": "OGF-infected release: Adobe Lightroom Classic v14.0.1.dmg"
+    },
+    {
+      "hash": "3e9kmo9eo782udnuxtmu3gy0a7g203zi",
+      "label": "OGF-infected release: Native Instruments Traktor Pro 4.0.2.13 HCiSO.dmg"
+    },
+    {
+      "hash": "4160a04b0c955dad66ea9390dc4c3278",
+      "label": "OGF-infected release: PDFelement_11_4_7_TNT.dmg"
+    },
+    {
+      "hash": "443257c0a93446003caea3b686848565",
+      "label": "OGF-infected release: Pixelmator_Pro_3.6.15.dmg"
+    },
+    {
+      "hash": "46976589a4ca814c6a5fa751c3b11632",
+      "label": "OGF-infected release: Nuke Studio v15.1v2 macOS ARM.dmg"
+    },
+    {
+      "hash": "483787a48d84fc74d6f9fe6362fbae2d",
+      "label": "OGF-infected release: PDFelement 11.4.18.dmg"
+    },
+    {
+      "hash": "4e2d664b4f1b75db36e439c3a19aa21b",
+      "label": "OGF-infected release: Perfectly_Clear_Workbench_v4_4.6.1.2717_[TNT].dmg"
+    },
+    {
+      "hash": "4ea84e372a43fbbff37b83871901f323",
+      "label": "OGF-infected release: ParallelsDesktop-20.2.1-55876.dmg"
+    },
+    {
+      "hash": "4efe532c171a16e7aacaad7a370952d0",
+      "label": "OGF-infected release: Audio_Hijack_4.5.0_[TNT].dmg"
+    },
+    {
+      "hash": "4f13f092e9964b239b2e88939546ec12",
+      "label": "OGF-infected release: Kaleidoscope+5.3.1.dmg"
+    },
+    {
+      "hash": "50de6fcc310aeb9de9cf92479dbc9aec",
+      "label": "OGF-infected release: Microsoft_365_and_Office_16.108.26041219.dmg"
+    },
+    {
+      "hash": "512d26d7ba4443da1cee8faabb3e219a",
+      "label": "OGF-infected release: Topaz Video Pro v1.5.1 macOS.dmg"
+    },
+    {
+      "hash": "5167de1939ed9832ac191be6175668ce",
+      "label": "OGF-infected release: Adobe Illustrator CC 2024 28.6.dmg"
+    },
+    {
+      "hash": "53e69901cdab5d65cb6ff53edfd80835",
+      "label": "OGF-infected release: DaVinci_Resolve_Studio_19.1.1_Mac.dmg"
+    },
+    {
+      "hash": "54ddebddcf7cee877d5cbd8771d280d0",
+      "label": "OGF-infected release: Capture One Pro 16.4.5.29.dmg"
+    },
+    {
+      "hash": "54de5383819ac0f85e24673db24383d6",
+      "label": "OGF-infected release: Dropover.4..5.2.TNT.MAC.OS.dmg"
+    },
+    {
+      "hash": "54ea56d857e0c57180f25d4734e06ff7",
+      "label": "OGF-infected release: Microsoft Office 2024 v16.93.dmg"
+    },
+    {
+      "hash": "5985e1fec1ae72b020672d24270e95a4",
+      "label": "OGF-infected release: CorelDRAW v25.2.1.313.dmg"
+    },
+    {
+      "hash": "5bf80ea3e65a3327504120d5833b3b6a",
+      "label": "OGF-infected release: Adobe Acrobat DC 24.004.20219.7.dmg"
+    },
+    {
+      "hash": "5d826945c11f9cb8344572b929e8062e",
+      "label": "OGF-infected release: DaVinci_Resolve_Studio_19.1.3_Mac.dmg"
+    },
+    {
+      "hash": "5da1f92636300487fb329a2d4443a22b",
+      "label": "OGF-infected release: Logic_Pro_11.1.2_MAS_[TNT].dmg"
+    },
+    {
+      "hash": "5f37ea4e9c38e3ab9b8ae9403dc92ed9",
+      "label": "OGF-infected release: Parallels Desktop 20.1.2-55742.dmg"
+    },
+    {
+      "hash": "6041ec0341e70857445bc84bdf0cc17c",
+      "label": "OGF-infected release: Luminar Neo 1.20.1 (18067) macOS TNT.dmg"
+    },
+    {
+      "hash": "609f32ce2788d800aa5e1245c4da62cd",
+      "label": "OGF-infected release: DxO PhotoLab 8 8.3.0 TNT.dmg"
+    },
+    {
+      "hash": "62279f76554101c1879331d68743afc2",
+      "label": "OGF-infected release: Capture_One_Pro_16_5_4_26.dmg"
+    },
+    {
+      "hash": "660a35f80210b4d8f6410d11a2660526",
+      "label": "OGF-infected release: Elmedia Player Pro 8 8.20 TNT.dmg"
+    },
+    {
+      "hash": "6919ea6c8f02f65ebfb1244ccd765600",
+      "label": "OGF-infected release: Adobe Lightroom Classic 14.1.1.dmg"
+    },
+    {
+      "hash": "6c0b893258d8f5d68591b7d2d3e83903",
+      "label": "OGF-infected release: Install_Waves_Central.dmg"
+    },
+    {
+      "hash": "70eb7db965b3bf0fb6213d6b99a80918",
+      "label": "OGF-infected release: Adobe Illustrator 29.0.1 NAP.dmg"
+    },
+    {
+      "hash": "710f3cef66f532c9560033ea185f043f",
+      "label": "OGF-infected release: HitPaw Univd 4.7.0 [TNT].dmg"
+    },
+    {
+      "hash": "7513e2b4602caee8e095377db6c27e01",
+      "label": "OGF-infected release: CleanMyMac 5 5.0.4 [U2B Pre-K'ed]-20074.dmg"
+    },
+    {
+      "hash": "76ff29ef57e8dcbe5a498153656e4e00",
+      "label": "OGF-infected release: Downie_4_4.9.4_[TNT].dmg"
+    },
+    {
+      "hash": "780a8e7f52e43122a4e1eae2ba38b6a5",
+      "label": "OGF-infected release: Adobe Bridge 15.0.2.dmg"
+    },
+    {
+      "hash": "7da1f3fe263c4eea91fb8f8b4abe9492",
+      "label": "OGF-infected release: Luminar Neo 1.21.0 18389.dmg"
+    },
+    {
+      "hash": "7fd12c00e22acde8352b348709e9569a",
+      "label": "OGF-infected release: HitPaw Photo Object Remover 1.2.2.dmg"
+    },
+    {
+      "hash": "81f0e73cdf76b63ca777727b68c8eba8",
+      "label": "OGF-infected release: Wondershare Recoverit 13.0.7.14 [TNT].dmg"
+    },
+    {
+      "hash": "834528407c1044335ede352f3c0f4590",
+      "label": "OGF-infected release: Cookie_7.5.2_TNT.dmg"
+    },
+    {
+      "hash": "876f3be21d8d205b30993791d9cacf37",
+      "label": "OGF-infected release: PDF_Reader_Pro_4.7.8_TNT.dmg"
+    },
+    {
+      "hash": "88eb3ed4d295e5ea0296d090c158a0e0",
+      "label": "OGF-infected release: Wondershare PDFelement Pro 11.1.3.dmg"
+    },
+    {
+      "hash": "8c1ca9899a3850f0302f2b4c2b76237d",
+      "label": "OGF-infected release: ParallelsDesktop-20.2.0.dmg"
+    },
+    {
+      "hash": "8c6212f7fb638cb378c6ef1239517924",
+      "label": "OGF-infected release: Adobe After Effects 24.5.dmg"
+    },
+    {
+      "hash": "8f3b0a8286ef892c6b68bdc0bde12878",
+      "label": "OGF-infected release: WiFi.Explorer.Pro.3.6.9.TNT.dmg"
+    },
+    {
+      "hash": "949c3b25076469ffdde6dbf9137a13e8",
+      "label": "OGF-infected release: Topaz Gigapixel v8.0.0 macOS.dmg"
+    },
+    {
+      "hash": "9717b403c7c4ca5c33d4d427311d7e96",
+      "label": "OGF-infected release: Topaz Video AI 5.3.5 macOS.dmg"
+    },
+    {
+      "hash": "975f8b188b4d075cb4631312d4a7e25e",
+      "label": "OGF-infected release: Adobe Illustrator 29.3.dmg"
+    },
+    {
+      "hash": "994cb72dd0d3f0023c9a11214bc993b6",
+      "label": "OGF-infected release: Microsoft Office 2021 LTSC 16.88.dmg"
+    },
+    {
+      "hash": "a100d252cdc50869bacdd56185c0d3d3",
+      "label": "OGF-infected release: Final Cut Pro 11.0.1 MAS [TNT].dmg"
+    },
+    {
+      "hash": "ab141aecb8382f4fd72e535ab78f7e90",
+      "label": "OGF-infected release: Microsoft.Office.LTSC.Standard.for.Mac.OS.2024.v16.94.dmg"
+    },
+    {
+      "hash": "ab5e9f5a141bded16d49b9659b9bca33",
+      "label": "OGF-infected release: Microsoft Office 2024 v16.93.dmg"
+    },
+    {
+      "hash": "ac60b72617c8ce08931a4fd424ed4565",
+      "label": "OGF-infected release: Adobe Acrobat Pro 24.006.20400.7.dmg"
+    },
+    {
+      "hash": "af07e6653cb2fe46432620043dc71431",
+      "label": "OGF-infected release: Microsoft_Office_LTSC_2024_VL_Serializer.pkg"
+    },
+    {
+      "hash": "b06fc59cecd6b4b09267701880f1c7ab",
+      "label": "OGF-infected release: Waves Ultimate 15 11.06.24 [TNT].dmg"
+    },
+    {
+      "hash": "b0c0a1a7947292ac25f2c4121cc0eb1f",
+      "label": "OGF-infected release: PDF_Reader_Pro_4_7_8_TNT.dmg"
+    },
+    {
+      "hash": "b1c01e6af780eecec99472bbdb2bf8bd",
+      "label": "OGF-infected release: Microsoft Office 2024 v16.92.dmg"
+    },
+    {
+      "hash": "b913059ca1079f1e595d061bb6046b4d",
+      "label": "OGF-infected release: Affinity_Photo_2_2.5.6_[TNT].dmg"
+    },
+    {
+      "hash": "bb300ba91a09ba23fbd7af43247ad4b3",
+      "label": "OGF-infected release: Adobe Premiere Pro 25.1.dmg"
+    },
+    {
+      "hash": "c30ad49debf39d1e73350ee06d370e59",
+      "label": "OGF-infected release: Adobe Photoshop 26.3.dmg"
+    },
+    {
+      "hash": "cb1e2369b35fb8e37dd45ef3ff098fda",
+      "label": "OGF-infected release: Microsoft Office 2024 v16.93.dmg"
+    },
+    {
+      "hash": "cd358845f2a73beca5efad50f3833831",
+      "label": "OGF-infected release: Infuse Pro 8.0.9 .dmg"
+    },
+    {
+      "hash": "cde447c2b2823cf6ffc57a507cb0c83c",
+      "label": "OGF-infected release: ACDSee.Photo.Studio.11.11.0.1.3155.TNT.dmg"
+    },
+    {
+      "hash": "cfc814271f4a355b9a96e609dd9b525f",
+      "label": "OGF-infected release: ParallelsDesktop-20.1.1-55740.dmg"
+    },
+    {
+      "hash": "d79d030e383eccaf3142e593b9ab074c",
+      "label": "OGF-infected release: Capture One Pro 16.5.5.7. TNT.dmg"
+    },
+    {
+      "hash": "d7f8b30accdebbd343e0a63b05b2d527",
+      "label": "OGF-infected release: CleanMyMac 5.0.4(atb).dmg"
+    },
+    {
+      "hash": "d83dc8416db1dc4d2deae50928050d02",
+      "label": "OGF-infected release: DaVinci_Resolve_Studio_19.1_Mac.dmg"
+    },
+    {
+      "hash": "d841c91d1d1cb3a9eda3f6e6ddeddc27",
+      "label": "OGF-infected release: Sketch_101.8_[TNT].dmg"
+    },
+    {
+      "hash": "d94dcb61e7bbfc95af863158ae039a1f",
+      "label": "OGF-infected release: CrossOver_24.0.7_[TNT].dmg"
+    },
+    {
+      "hash": "db884a33213c5f85215c065d98966532",
+      "label": "OGF-infected release: Microsoft Office 2024 v16.91.dmg"
+    },
+    {
+      "hash": "db8eeb9d956f327d97e23fa04fdfe1db",
+      "label": "OGF-infected release: Install_Waves_Central.dmg"
+    },
+    {
+      "hash": "df69dc21cb6839286e247c2fa2dc462a",
+      "label": "OGF-infected release: Adobe Illustrator 29.2.1.dmg"
+    },
+    {
+      "hash": "e67d6fc1b21539bde4d409bfcf6d9eb1",
+      "label": "OGF-infected release: Adobe Lightroom Classic 14.2.dmg"
+    },
+    {
+      "hash": "e91b0cc7561c4d032d0da55c4285ce83",
+      "label": "OGF-infected release: PowerPhotos_2.7.4_[TNT].dmg"
+    },
+    {
+      "hash": "ea795c69ff68af3ea67dbf5f841dac1a",
+      "label": "OGF-infected release: PDF Expert 3.10.10.dmg"
+    },
+    {
+      "hash": "eb6be600da6c9ce2bd1bbf2583639f69",
+      "label": "OGF-infected release: MacPilot 16.6.dmg"
+    },
+    {
+      "hash": "ee77106aabaeefb281a140c1687b25be",
+      "label": "OGF-infected release: Commander_One_PRO_3.11_[TNT].dmg"
+    },
+    {
+      "hash": "f1e92de57afd62fd6b459b94f8f63344",
+      "label": "OGF-infected release: Rhino_8_8_16_TNT.dmg"
+    },
+    {
+      "hash": "f5e43c9817797242d5edaa58a61600ca",
+      "label": "OGF-infected release: Adobe Photoshop 26.1.dmg"
+    },
+    {
+      "hash": "66df4ce361e75c40cd25a43e888a103f",
+      "label": "xdivcmp: Install.app/Contents/MacOS/Install"
+    },
+    {
+      "hash": "e689f2ec28a81fb9b9e0254e214106fa",
+      "label": "xdivcmp: outer Package.pkg/Scripts/postinstall"
+    },
+    {
+      "hash": "da55c7a5c591807dd21716becc928eb0",
+      "label": "xdivcmp: decoded embedded AppleScript payload"
+    },
+    {
+      "hash": "38f9526296d943bbbd8757f7859b3b3d",
+      "label": "xdivcmp: fake Ableton Live 12 Suite v12.4.3 U2B macOS Patch.pkg"
+    },
+    {
+      "hash": "07c1e6b9a5d4310100bcc7c2edad5e60",
+      "label": "xdivcmp: fake Archicad v29.2.0 INT_RU ARM.dmg"
+    },
+    {
+      "hash": "649ec27a97a43c4aaa949097eda02c1a",
+      "label": "xdivcmp: fake Archicad v29.2.0 ARM Patch.pkg"
+    },
+    {
+      "hash": "2ce67d8947a9a53c40b6bc92bf970b33",
+      "label": "xdivcmp: fake Adobe Illustrator v30.4.0 Activation Tool.dmg"
+    },
+    {
+      "hash": "0210c46785cbebd4248b449d00570d33",
+      "label": "xdivcmp: fake Creative Cloud Desktop v6.8.1 (Illustrator v30.4.0 delivery)"
+    },
+    {
+      "hash": "839219300c6aa43426a1a5b8b83cbd91",
+      "label": "xdivcmp: fake Adobe Illustrator v30.5.1 Activation Tool.dmg"
+    },
+    {
+      "hash": "a9058b5860f6f00c4de270a580810895",
+      "label": "xdivcmp: fake Creative Cloud Desktop v6.8.1 (Illustrator v30.5.1 delivery)"
+    }
+  ],
+  "launchdLabels": [
+    "com.xdivcmp"
+  ],
+  "launchdPaths": [
+    "/Library/LaunchDaemons/com.xdivcmp.plist"
+  ],
+  "stagingApps": [
+    "/Library/Application Support/Install.app",
+    "/Library/Application Support/Patch.app",
+    "/Library/Application Support/Setup.app"
+  ],
+  "ips": [
+    "192.253.248.181",
+    "86.54.25.213",
+    "81.19.135.54",
+    "82.115.223.9",
+    "85.209.11.155",
+    "141.98.9.20",
+    "141.98.9.203",
+    "185.7.214.148",
+    "193.124.185.54"
+  ],
+  "domains": [
+    "charge0x.at",
+    "nqowf.com",
+    "odyssey1.to",
+    "rgueapp.com",
+    "zblong.com"
+  ]
+}
