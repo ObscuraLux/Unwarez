@@ -1,46 +1,60 @@
-# WolfCare / Broken Stones Malware Scanner — Developer Notes
+# ObscuraLux Unwarez Malware Scanner — Developer Notes
 
 A snapshot for further development. This covers architecture, what's
 actually been verified vs. what hasn't, and the known open work.
+
+**Rebrand note:** this project was previously "WolfCare" (and, before
+that, also shipped a separately-branded "Broken Stones" CLI variant of
+the identical scanner). Renamed throughout - scripts, Swift sources,
+bundle IDs, the quarantine data path, docs. Broken Stones was
+consolidated into the single renamed CLI script rather than also
+renamed in place, since giving it the same new name would have made it
+a byte-for-byte duplicate under a colliding filename. Existing local
+installs from before the rename have their quarantine/config data at
+the old `wolfcare_quarantine` path, which the renamed app/scripts no
+longer read - not a concern for a pre-release rebrand, but worth
+knowing if this ever needs to be a preserved-data migration instead.
 
 ---
 
 ## Repository layout
 
 ```
-gui_app/                  Native macOS SwiftUI app (v1.5)
+gui_app/                  Native macOS SwiftUI app
   Sources/*.swift         UI + logic (12 files)
-  WolfCare.sh             The bash scanner, bundled as the backend
-  build_app.sh            Compiles + assembles + ad-hoc signs the .app
-  Info.plist              Bundle metadata
-  icon.icns               App icon
-  dmg_readme.txt          End-user setup guide (ships inside the DMG)
-  README.txt              Build/changelog notes
+  ObscuraLuxUnwarez.sh     The bash scanner, bundled as the backend
+  build_app.sh             Compiles + assembles + ad-hoc signs the .app
+  build_dmg.sh              Packages that .app into a distributable DMG
+  Info.plist                Bundle metadata
+  dmg_readme.txt             End-user setup guide (ships inside the DMG)
+  README.txt                 Build/changelog notes
 
-cli_scripts/              Standalone terminal versions (v1.1)
-  Wolfcare Malware Scanner v1.1.sh
-  Broken Stones Malware Scanner v1.1.sh
+cli_scripts/              Standalone terminal version
+  ObscuraLux Unwarez Malware Scanner v1.1.sh
 ```
 
-### The three variants
+### The two variants
 
-All three share the same scanning engine. The GUI app is a Swift
-frontend that shells out to the same bash script the CLI versions
-run directly.
+Both share the same scanning engine. The GUI app is a Swift frontend
+that shells out to the same bash script the CLI version runs directly.
 
 | | Bundle ID | Quarantine path |
 |---|---|---|
-| WolfCare CLI | `com.wolfcare.malwarescanner` | `~/.local/share/wolfcare_quarantine` |
-| Broken Stones CLI | `com.brokenstones.malwarescanner` | `~/.local/share/brokenstones_quarantine` |
-| WolfCare GUI | `com.wolfcare.malwarescanner.gui` | `~/.local/share/wolfcare_quarantine` (shared with CLI) |
+| ObscuraLux Unwarez CLI | `com.obscuralux.unwarez` | `~/.local/share/obscuralux_unwarez_quarantine` |
+| ObscuraLux Unwarez GUI | `com.obscuralux.unwarez.gui` | `~/.local/share/obscuralux_unwarez_quarantine` (shared with CLI) |
 
-**Important for development:** the three bash scripts are separate
+**Important for development:** `gui_app/ObscuraLuxUnwarez.sh` and
+`cli_scripts/ObscuraLux Unwarez Malware Scanner v1.1.sh` are separate
 files that must be kept in sync manually. Changes to scan logic need
-applying to all three. Past sessions did this with Python patch
-scripts using unique anchor strings + assertions — recommended, since
-a silent partial propagation already caused one real bug (a function
-was left behind, producing a runtime `command not found` that only
-showed up in a full end-to-end test, not a syntax check).
+applying to both. Past sessions did this with Python patch scripts
+using unique anchor strings + assertions — recommended, since a silent
+partial propagation already caused one real bug (a function was left
+behind, producing a runtime `command not found` that only showed up in
+a full end-to-end test, not a syntax check). Before the rebrand
+consolidation there was a third copy (the separately-branded "Broken
+Stones" CLI) that needed the same treatment - if a differently-branded
+variant is ever reintroduced, go back to patching all copies the same
+way.
 
 ---
 
@@ -48,7 +62,7 @@ showed up in a full end-to-end test, not a syntax check).
 
 ### GUI ↔ backend protocol
 
-The Swift app runs `WolfCare.sh --gui --target=N [--path=...]` and
+The Swift app runs `ObscuraLuxUnwarez.sh --gui --target=N [--path=...]` and
 parses structured lines from stdout. Fields are separated by ASCII
 unit separator (`\x1f`, shown as `<US>` below):
 
@@ -232,13 +246,14 @@ to reintroduce.
   above for what was verified and "Bugs found the hard way" for what
   broke along the way (notably the `timeout` portability bug, found
   while doing the archive work).
-- **Logo.** The earlier "sidebar logo" attempts were stuck on an asset
-  with a black background that resisted automated cutout. A
-  user-provided, already-correctly-cut-out transparent PNG
-  (`wolf_logo.png`) is now placed in the window's title bar via
-  `.toolbar { ToolbarItem(placement: .primaryAction) { ... } }`.
-  Verified against the real installed app: clicked through all 5
-  sidebar tabs with it present, no missed clicks, no crash.
+- **Logo (superseded).** A title-bar logo was working (see prior
+  entries in this file's history for that saga), but was wolf-themed
+  and no longer fits the project - removed as part of the WolfCare ->
+  ObscuraLux Unwarez rebrand, along with `icon.icns` (the app now uses
+  a generic default icon until new branded assets exist). The
+  `.toolbar { ToolbarItem(placement: .primaryAction) { ... } }` code
+  that placed it was removed from `ContentView.swift` too, rather than
+  left pointing at a now-missing asset.
 - **Settings tab crash.** `SettingsStore.init()` called `load()`,
   which - after the Keychain migration - spawns a subprocess
   synchronously. An `@StateObject`'s `init()` runs during the view's
@@ -264,7 +279,7 @@ to reintroduce.
 ```bash
 cd gui_app
 bash build_app.sh                              # needs Xcode CLT
-open "build/WolfCare Malware Scanner v1.5.app"
+open "build/ObscuraLux Unwarez Malware Scanner v1.5.app"
 ```
 
 Ad-hoc signing is **mandatory**, not optional — Apple Silicon refuses

@@ -1,4 +1,4 @@
-WolfCare Malware Scanner - Native GUI (v1.6.3)
+ObscuraLux Unwarez Malware Scanner - Native GUI (v1.6.3)
 ==========================================================
 
 WHAT'S NEW IN THIS PASS
@@ -41,12 +41,22 @@ WHAT'S NEW IN THIS PASS
 - Fixed a crash on opening Settings: an @StateObject's init() ran
   Keychain access (a subprocess) during the view's first layout pass,
   corrupting SwiftUI's AttributeGraph. Now loads from .onAppear.
-- Scan-complete alert, wolf/moon logo in the title bar, GUI now builds
-  as a universal binary (arm64 + x86_64), deployment target dropped
-  from 13.0 to 12.0 (NavigationSplitView -> NavigationView, Table ->
-  List).
+- Scan-complete alert, GUI now builds as a universal binary
+  (arm64 + x86_64), deployment target dropped from 13.0 to 12.0
+  (NavigationSplitView -> NavigationView, Table -> List).
 - New build_dmg.sh packages a "fancy" installer DMG (app / Applications
   alias / setup guide, 96x96 icons, compressed read-only).
+- Pause/Resume for an in-progress scan (SIGSTOP/SIGCONT on the backend
+  process and clamscan specifically).
+- Rebranded WolfCare -> ObscuraLux Unwarez throughout: scripts, Swift
+  sources, bundle IDs, the quarantine data path
+  (~/.local/share/obscuralux_unwarez_quarantine), and docs. The
+  wolf-themed logo/icon were removed (no longer fit the name) rather
+  than left in place; the app uses a generic default icon until
+  replacement branded assets exist. The separate "Broken Stones"
+  CLI variant was consolidated into the single renamed script, since
+  giving it the same new name would have made it a byte-for-byte
+  duplicate under a colliding filename.
 
 REQUIREMENTS
 ------------
@@ -57,7 +67,7 @@ HOW TO BUILD
 ------------
     cd gui_app
     bash build_app.sh
-    open "build/WolfCare Malware Scanner.app"
+    open "build/ObscuraLux Unwarez Malware Scanner.app"
 
 To also package a distributable DMG (requires `pip3 install dmgbuild`):
     bash build_dmg.sh
@@ -68,15 +78,14 @@ first time (right-click, Open).
 PROJECT LAYOUT
 ---------------
 Sources/
-  WolfCareApp.swift      App entry point
-  ContentView.swift      Sidebar (Buttons, not List) + routing, title
-                           bar logo
+  ObscuraLuxUnwarezApp.swift      App entry point
+  ContentView.swift      Sidebar (Buttons, not List) + routing
   ScanView.swift          Scan tab (target selector also Buttons)
-  ScanEngine.swift        Shells out to WolfCare.sh, parses --gui
+  ScanEngine.swift        Shells out to ObscuraLuxUnwarez.sh, parses --gui
                            output, cleans up orphaned clamscan
                            processes, re-scan-specific-files support
   SettingsView.swift      Settings tab UI
-  SettingsStore.swift     Reads/writes .wolfcare_config (theme/email)
+  SettingsStore.swift     Reads/writes .obscuralux_unwarez_config (theme/email)
                            and Keychain (API keys)
   QuarantineView.swift    Quarantine tab UI - restore/delete/re-scan/
                            mark as safe
@@ -87,11 +96,9 @@ Sources/
   CronStore.swift         Shells out to crontab
   FullDiskAccess.swift    Live TCC probe + Privacy Settings deep link
   Models.swift            Data types
-Info.plist              App bundle metadata
-WolfCare.sh              The bash scanner (bundled as the backend)
-icon.icns                App icon
-wolf_logo.png            Title bar logo
+Info.plist               App bundle metadata
+ObscuraLuxUnwarez.sh     The bash scanner (bundled as the backend)
 dmg_readme.txt           End-user setup guide (ships inside the DMG)
 build_app.sh             Compiles everything into
-                           build/WolfCare Malware Scanner.app
+                           build/ObscuraLux Unwarez Malware Scanner.app
 build_dmg.sh             Packages that .app into a distributable DMG

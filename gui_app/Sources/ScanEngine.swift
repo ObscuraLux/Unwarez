@@ -35,7 +35,7 @@ final class ScanEngine: ObservableObject {
     /// Path to the bundled scanner script, copied into Contents/Resources
     /// at build time by build_app.sh.
     private var scriptPath: String? {
-        Bundle.main.path(forResource: "WolfCare", ofType: nil)
+        Bundle.main.path(forResource: "ObscuraLuxUnwarez", ofType: nil)
     }
 
     func startScan(target: ScanTarget, customPath: String = "") {
@@ -61,7 +61,7 @@ final class ScanEngine: ObservableObject {
             lastError = "Could not find the bundled scanner script inside the app."
             return
         }
-        let listPath = NSTemporaryDirectory() + "wolfcare_rescan_\(UUID().uuidString).txt"
+        let listPath = NSTemporaryDirectory() + "obscuralux_unwarez_rescan_\(UUID().uuidString).txt"
         do {
             try (paths.joined(separator: "\n") + "\n").write(toFile: listPath, atomically: true, encoding: .utf8)
         } catch {

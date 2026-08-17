@@ -18,7 +18,7 @@ final class QuarantineStore: ObservableObject {
     @Published var message: String?
 
     private var quarantineDir: String {
-        NSHomeDirectory() + "/.local/share/wolfcare_quarantine"
+        NSHomeDirectory() + "/.local/share/obscuralux_unwarez_quarantine"
     }
     private var manifestPath: String {
         quarantineDir + "/hashes/quarantine_manifest.txt"

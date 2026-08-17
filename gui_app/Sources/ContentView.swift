@@ -58,7 +58,7 @@ struct ContentView: View {
                 Spacer()
             }
             .padding(8)
-            .navigationTitle("WolfCare")
+            .navigationTitle("ObscuraLux Unwarez")
 
             Group {
                 switch selection {
@@ -78,26 +78,6 @@ struct ContentView: View {
                 }
             }
             .frame(minWidth: 500, minHeight: 400)
-        }
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                logoBadge
-            }
-        }
-    }
-
-    // Bundled as a resource by build_app.sh, same way as icon.icns.
-    // Placed via .toolbar/.primaryAction rather than an overlay, so it
-    // renders in the window's title bar itself (trailing side) instead
-    // of floating over the content below it.
-    @ViewBuilder
-    private var logoBadge: some View {
-        if let path = Bundle.main.path(forResource: "wolf_logo", ofType: "png"),
-           let nsImage = NSImage(contentsOfFile: path) {
-            Image(nsImage: nsImage)
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(height: 22)
         }
     }
 }

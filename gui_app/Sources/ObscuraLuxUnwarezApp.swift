@@ -12,7 +12,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 @main
-struct WolfCareApp: App {
+struct ObscuraLuxUnwarezApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     // CFBundleName/CFBundleDisplayName in Info.plist are deliberately
@@ -24,9 +24,9 @@ struct WolfCareApp: App {
     private var windowTitle: String {
         guard let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
               !version.isEmpty else {
-            return "WolfCare Malware Scanner"
+            return "ObscuraLux Unwarez Malware Scanner"
         }
-        return "WolfCare Malware Scanner v\(version)"
+        return "ObscuraLux Unwarez Malware Scanner v\(version)"
     }
 
     var body: some Scene {

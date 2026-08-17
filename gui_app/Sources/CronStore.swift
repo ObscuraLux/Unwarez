@@ -10,7 +10,7 @@ final class CronStore: ObservableObject {
     @Published var message: String?
 
     private var scriptPath: String? {
-        Bundle.main.path(forResource: "WolfCare", ofType: nil)
+        Bundle.main.path(forResource: "ObscuraLuxUnwarez", ofType: nil)
     }
 
     func refresh() {

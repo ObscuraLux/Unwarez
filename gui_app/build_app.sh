@@ -1,14 +1,15 @@
 #!/bin/bash
-# Builds WolfCare Malware Scanner.app from the Swift sources in
-# Sources/, bundling the tested bash scanner (WolfCare.sh) as its backend.
+# Builds ObscuraLux Unwarez Malware Scanner.app from the Swift sources
+# in Sources/, bundling the tested bash scanner (ObscuraLuxUnwarez.sh)
+# as its backend.
 set -e
 
-APP_NAME="WolfCareGUI"
+APP_NAME="ObscuraLuxUnwarezGUI"
 # Deliberately versionless - CFBundleName/CFBundleDisplayName in
 # Info.plist carry the version (shown in the title bar and menu bar),
 # so bumping a version doesn't require renaming the installed .app or
 # breaking a Dock/Applications shortcut to it.
-BUNDLE_NAME="WolfCare Malware Scanner.app"
+BUNDLE_NAME="ObscuraLux Unwarez Malware Scanner.app"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_DIR="$SCRIPT_DIR/build"
 
@@ -47,10 +48,8 @@ rm -f "$BUILD_DIR/arm64-bin" "$BUILD_DIR/x86_64-bin"
 
 echo "[4/5] Assembling app bundle..."
 cp "$SCRIPT_DIR/Info.plist" "$BUILD_DIR/$BUNDLE_NAME/Contents/Info.plist"
-cp "$SCRIPT_DIR/icon.icns" "$BUILD_DIR/$BUNDLE_NAME/Contents/Resources/icon.icns"
-cp "$SCRIPT_DIR/wolf_logo.png" "$BUILD_DIR/$BUNDLE_NAME/Contents/Resources/wolf_logo.png"
-cp "$SCRIPT_DIR/WolfCare.sh" "$BUILD_DIR/$BUNDLE_NAME/Contents/Resources/WolfCare"
-chmod +x "$BUILD_DIR/$BUNDLE_NAME/Contents/Resources/WolfCare"
+cp "$SCRIPT_DIR/ObscuraLuxUnwarez.sh" "$BUILD_DIR/$BUNDLE_NAME/Contents/Resources/ObscuraLuxUnwarez"
+chmod +x "$BUILD_DIR/$BUNDLE_NAME/Contents/Resources/ObscuraLuxUnwarez"
 chmod +x "$BUILD_DIR/$BUNDLE_NAME/Contents/MacOS/$APP_NAME"
 
 echo "[5/5] Ad-hoc code signing..."

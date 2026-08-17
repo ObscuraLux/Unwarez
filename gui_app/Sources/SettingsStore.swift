@@ -1,7 +1,7 @@
 import Foundation
 import Combine
 
-/// Reads/writes the same config file the bash backend (WolfCare.sh)
+/// Reads/writes the same config file the bash backend (ObscuraLuxUnwarez.sh)
 /// uses for THEME/ALERT_EMAIL, and the same Keychain entries (via the
 /// `security` CLI, exactly as the bash backend does) for the API keys -
 /// so a key set here is immediately visible to scans, and the CLI/app
@@ -20,10 +20,10 @@ final class SettingsStore: ObservableObject {
     private var theme: String = "dark"
 
     private var configDir: String {
-        NSHomeDirectory() + "/.local/share/wolfcare_quarantine"
+        NSHomeDirectory() + "/.local/share/obscuralux_unwarez_quarantine"
     }
     private var configPath: String {
-        configDir + "/.wolfcare_config"
+        configDir + "/.obscuralux_unwarez_config"
     }
     // Matches the bash backend's KEYCHAIN_SERVICE="${CONFIG_FILE##*/}"
     // exactly, so both land on the same Keychain entries.

@@ -16,7 +16,7 @@ final class LogsStore: ObservableObject {
     @Published var entries: [LogEntry] = []
 
     var reportsDirPath: String {
-        NSHomeDirectory() + "/.local/share/wolfcare_quarantine/reports"
+        NSHomeDirectory() + "/.local/share/obscuralux_unwarez_quarantine/reports"
     }
 
     init() {
