@@ -142,6 +142,15 @@ struct ScanView: View {
                 Text("\"Clean\" means not found in these specific databases — not a guarantee this system is free of malware.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+
+                if !engine.isScanning, summary.detected > 0, !flaggedPaths.isEmpty {
+                    Button {
+                        engine.rescanFlagged(paths: flaggedPaths)
+                    } label: {
+                        Label("Re-scan Flagged Files Only", systemImage: "arrow.clockwise.circle")
+                    }
+                    .buttonStyle(.bordered)
+                }
             }
         }
         .padding()
@@ -167,6 +176,10 @@ struct ScanView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             hasFullDiskAccess = FullDiskAccess.isGranted()
         }
+    }
+
+    private var flaggedPaths: [String] {
+        engine.results.filter { $0.status == .malicious && !$0.path.isEmpty }.map { $0.path }
     }
 
     private func chooseFolder() {

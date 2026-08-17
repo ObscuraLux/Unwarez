@@ -387,24 +387,28 @@ check_malwarebazaar_hash() {
     command -v jq >/dev/null 2>&1 || { echo "NOJQ"; return 1; }
 
     local resp status family
-    resp=$(curl -s --connect-timeout 10 \
+    resp=$(curl -s --connect-timeout 10 --max-time 15 \
         -H "Auth-Key: $MB_API_KEY" \
         -d "query=get_info&hash=$sha" \
         "https://mb-api.abuse.ch/api/v1/" 2>/dev/null)
 
     status=$(echo "$resp" | jq -r '.query_status // "unknown"' 2>/dev/null)
 
-    case "$status" in
-        hash_not_found|illegal_hash|no_hash_provided|unknown)
-            echo "UNKNOWN"
-            return 1
-            ;;
-        *)
-            family=$(echo "$resp" | jq -r '.data[0].signature // "unnamed family"' 2>/dev/null)
-            echo "MALICIOUS:$family"
-            return 2
-            ;;
-    esac
+    # Allow-list, not deny-list: only the documented "ok" status means
+    # MalwareBazaar actually found this hash with sample data. Every
+    # other case - the documented non-matches (hash_not_found,
+    # illegal_hash, no_hash_provided, http_post_expected) AND any
+    # network failure/timeout/malformed response (which parses to an
+    # empty or unrecognized string here) - must resolve to UNKNOWN, not
+    # MALICIOUS. Getting this backwards means a network hiccup silently
+    # auto-quarantines a clean file.
+    if [ "$status" = "ok" ]; then
+        family=$(echo "$resp" | jq -r '.data[0].signature // "unnamed family"' 2>/dev/null)
+        echo "MALICIOUS:$family"
+        return 2
+    fi
+    echo "UNKNOWN"
+    return 1
 }
 
 # ============================================================
@@ -416,7 +420,7 @@ check_malwarebazaar_hash() {
 check_circl_hashlookup() {
     local sha="$1"
     local http_code
-    http_code=$(curl -s --connect-timeout 10 -o /dev/null -w "%{http_code}" \
+    http_code=$(curl -s --connect-timeout 10 --max-time 15 -o /dev/null -w "%{http_code}" \
         "https://hashlookup.circl.lu/lookup/sha256/$sha" 2>/dev/null)
 
     case "$http_code" in
@@ -946,6 +950,7 @@ check_dependencies
 # ---------- Non-interactive / cron mode (Step 3) ----------
 AUTO_MODE=0
 AUTO_TARGET=""
+AUTO_FILES_LIST=""
 AUTO_PATH=""
 GUI_MODE=0
 for arg in "$@"; do
@@ -953,6 +958,7 @@ for arg in "$@"; do
         --auto) AUTO_MODE=1 ;;
         --target=*) AUTO_TARGET="${arg#*=}" ;;
         --path=*) AUTO_PATH="${arg#*=}" ;;
+        --files=*) AUTO_FILES_LIST="${arg#*=}" ;;
         --gui) GUI_MODE=1; AUTO_MODE=1 ;;
     esac
 done
@@ -1039,7 +1045,7 @@ check_virustotal_hash() {
     VT_LAST_CALL_TS=$(date +%s)
 
     local resp http_code body
-    resp=$(curl -s --connect-timeout 10 -w "\n%{http_code}" \
+    resp=$(curl -s --connect-timeout 10 --max-time 15 -w "\n%{http_code}" \
         -H "x-apikey: $VT_API_KEY" \
         "https://www.virustotal.com/api/v3/files/$hash" 2>/dev/null)
     http_code=$(echo "$resp" | tail -n1)
@@ -1365,6 +1371,7 @@ run_scan() {
         3) TARGET="$HOME" ;;
         4) [ -z "$TARGET" ] && TARGET="$custom_path" ;;
         5) : ;;
+        8) : ;;
         6)
             TARGET="/"
             if [ "$AUTO_MODE" -eq 0 ]; then
@@ -1412,6 +1419,11 @@ run_scan() {
                 -o -name "*.gz" -o -name "*.bz2" -o -name "*.xz" -o -name "*.iso" \) -print 2>/dev/null > "$FILE_LIST"
     elif [ "$choice" = "5" ] && [ -n "$CUSTOM_PATH" ]; then
         echo "$CUSTOM_PATH" > "$FILE_LIST"
+    elif [ "$choice" = "8" ] && [ -n "$AUTO_FILES_LIST" ] && [ -f "$AUTO_FILES_LIST" ]; then
+        # GUI-only mode: re-scan an explicit list of paths (e.g. "scan
+        # just the files flagged malicious last time") rather than
+        # walking a directory. One absolute path per line.
+        cp "$AUTO_FILES_LIST" "$FILE_LIST"
     else
         find "$TARGET" -maxdepth 10 \( -path "$QUARANTINE" -prune \) \
             -o \( -type f \( -name "*.dmg" -o -name "*.zip" -o -name "*.pkg" -o -name "*.app" -o -name "*.rar" \
@@ -1492,15 +1504,15 @@ run_scan() {
             elif [[ "$vt_status" == MALICIOUS:* ]]; then
                 gui_detail="VirusTotal: ${vt_status#MALICIOUS:}"
             fi
-            [ "$GUI_MODE" -eq 1 ] && printf 'GUI\x1fFILE\x1f%s\x1fMALICIOUS\x1f%s\x1f%s\x1f%s\x1f%s\n' \
-                "$SCAN_COUNT" "$name" "$sha" "$file_size_kb" "$gui_detail"
+            [ "$GUI_MODE" -eq 1 ] && printf 'GUI\x1fFILE\x1f%s\x1fMALICIOUS\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\n' \
+                "$SCAN_COUNT" "$name" "$sha" "$file_size_kb" "$gui_detail" "$file"
         elif [ "$rs_status" = "VERIFIED" ] || [ "$vt_status" = "CLEAN" ] || [ "$circl_status" = "KNOWN_GOOD" ]; then
             echo -e "${GREEN}    [v] Verified clean (RS=$rs_status VT=$vt_status CIRCL=$circl_status)${NC}"
             [ "$sig_status" != "N/A" ] && echo -e "${BLUE}    [i] Code signature: $sig_status${NC}"
             echo "  [v] VERIFIED: $file | SIG=$sig_status" >> "$REPORT"
             echo "${sha}|${md5}|$name|$size|VERIFIED" >> "$QUARANTINE/hashes/hashes.txt"
-            [ "$GUI_MODE" -eq 1 ] && printf 'GUI\x1fFILE\x1f%s\x1fVERIFIED\x1f%s\x1f%s\x1f%s\x1f%s\n' \
-                "$SCAN_COUNT" "$name" "$sha" "$file_size_kb" "$rs_status/$vt_status/$circl_status"
+            [ "$GUI_MODE" -eq 1 ] && printf 'GUI\x1fFILE\x1f%s\x1fVERIFIED\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\n' \
+                "$SCAN_COUNT" "$name" "$sha" "$file_size_kb" "$rs_status/$vt_status/$circl_status" "$file"
         else
             echo -e "${YELLOW}    [?] UNVERIFIED - no match in ReleaseSeal, VirusTotal, MalwareBazaar, or CIRCL ($rs_status/$vt_status/$mb_status/$circl_status, ClamAV=$clamav_status)${NC}"
             [ "$sig_status" != "N/A" ] && echo -e "${BLUE}    [i] Code signature: $sig_status${NC}"
@@ -1510,8 +1522,8 @@ run_scan() {
             echo "  [?] UNVERIFIED: $file | $sha | SIG=$sig_status${deep_status:+ | DEEP=$deep_status}" >> "$REPORT"
             echo "${sha}|${md5}|$name|$size|UNVERIFIED" >> "$QUARANTINE/hashes/hashes.txt"
             UNVERIFIED=$((UNVERIFIED + 1))
-            [ "$GUI_MODE" -eq 1 ] && printf 'GUI\x1fFILE\x1f%s\x1fUNVERIFIED\x1f%s\x1f%s\x1f%s\x1f%s\n' \
-                "$SCAN_COUNT" "$name" "$sha" "$file_size_kb" "${sig_status/N\/A/no match}"
+            [ "$GUI_MODE" -eq 1 ] && printf 'GUI\x1fFILE\x1f%s\x1fUNVERIFIED\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\n' \
+                "$SCAN_COUNT" "$name" "$sha" "$file_size_kb" "${sig_status/N\/A/no match}" "$file"
         fi
     done < "$FILE_LIST"
 

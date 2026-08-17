@@ -13,6 +13,7 @@ struct ScanResult: Identifiable {
     let sizeKB: Int
     let status: FileStatus
     let detail: String
+    let path: String
 }
 
 struct ScanSummary {

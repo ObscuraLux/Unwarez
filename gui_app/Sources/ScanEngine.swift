@@ -41,6 +41,35 @@ final class ScanEngine: ObservableObject {
             lastError = "Could not find the bundled scanner script inside the app."
             return
         }
+        var args = [scriptPath, "--gui", "--target=\(target.rawValue)"]
+        if (target == .customDirectory || target == .customFile), !customPath.isEmpty {
+            args.append("--path=\(customPath)")
+        }
+        launch(args: args, cleanupPath: nil)
+    }
+
+    /// Re-scans exactly the given paths (e.g. "scan again just the files
+    /// flagged malicious last time") instead of walking a directory.
+    /// Uses target=8, a GUI-only mode the bash backend added specifically
+    /// for this: it loads FILE_LIST directly from --files=<path> rather
+    /// than from `find`.
+    func rescanFlagged(paths: [String]) {
+        guard !paths.isEmpty else { return }
+        guard let scriptPath = scriptPath else {
+            lastError = "Could not find the bundled scanner script inside the app."
+            return
+        }
+        let listPath = NSTemporaryDirectory() + "wolfcare_rescan_\(UUID().uuidString).txt"
+        do {
+            try (paths.joined(separator: "\n") + "\n").write(toFile: listPath, atomically: true, encoding: .utf8)
+        } catch {
+            lastError = "Could not prepare the file list to re-scan: \(error.localizedDescription)"
+            return
+        }
+        launch(args: [scriptPath, "--gui", "--target=8", "--files=\(listPath)"], cleanupPath: listPath)
+    }
+
+    private func launch(args: [String], cleanupPath: String?) {
         guard !isScanning else { return }
 
         // Defensive cleanup: if the app was previously quit or relaunched
@@ -61,11 +90,6 @@ final class ScanEngine: ObservableObject {
 
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/bin/bash")
-
-        var args = [scriptPath, "--gui", "--target=\(target.rawValue)"]
-        if (target == .customDirectory || target == .customFile), !customPath.isEmpty {
-            args.append("--path=\(customPath)")
-        }
         task.arguments = args
 
         let outPipe = Pipe()
@@ -79,6 +103,7 @@ final class ScanEngine: ObservableObject {
         }
 
         task.terminationHandler = { [weak self] terminatedProcess in
+            if let cleanupPath { try? FileManager.default.removeItem(atPath: cleanupPath) }
             DispatchQueue.main.async {
                 outPipe.fileHandleForReading.readabilityHandler = nil
                 guard let self = self else { return }
@@ -208,8 +233,9 @@ final class ScanEngine: ObservableObject {
                 let sha = fields[5]
                 let sizeKB = Int(fields[6]) ?? 0
                 let detail = fields.count > 7 ? fields[7] : ""
+                let path = fields.count > 8 ? fields[8] : ""
                 self.results.append(
-                    ScanResult(id: idx, name: name, sha256: sha, sizeKB: sizeKB, status: status, detail: detail)
+                    ScanResult(id: idx, name: name, sha256: sha, sizeKB: sizeKB, status: status, detail: detail, path: path)
                 )
                 self.scannedCount = idx
                 self.statusMessage = nil
