@@ -71,6 +71,19 @@ struct ScanView: View {
 
             HStack {
                 if engine.isScanning {
+                    Button {
+                        if engine.isPaused {
+                            engine.resumeScan()
+                        } else {
+                            engine.pauseScan()
+                        }
+                    } label: {
+                        Label(
+                            engine.isPaused ? "Resume" : "Pause",
+                            systemImage: engine.isPaused ? "play.fill" : "pause.fill"
+                        )
+                    }
+
                     Button(role: .destructive) {
                         engine.cancelScan()
                     } label: {
@@ -89,9 +102,16 @@ struct ScanView: View {
                     .buttonStyle(.borderedProminent)
                 }
 
-                if engine.isScanning {
+                if engine.isScanning && !engine.isPaused {
                     ProgressView()
                         .controlSize(.small)
+                        .padding(.leading, 4)
+                }
+
+                if engine.isPaused {
+                    Label("Paused", systemImage: "pause.circle.fill")
+                        .foregroundStyle(.orange)
+                        .font(.caption)
                         .padding(.leading, 4)
                 }
             }
@@ -104,7 +124,9 @@ struct ScanView: View {
 
             if let status = engine.statusMessage {
                 HStack(spacing: 6) {
-                    ProgressView().controlSize(.small)
+                    if !engine.isPaused {
+                        ProgressView().controlSize(.small)
+                    }
                     Text(status)
                         .font(.caption)
                         .foregroundStyle(.secondary)

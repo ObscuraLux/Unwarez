@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import Darwin
 
 /// Drives the existing, already-tested bash scanner in `--gui` mode and
 /// parses its structured output (lines prefixed "GUI\x1f...") into
@@ -11,6 +12,7 @@ final class ScanEngine: ObservableObject {
     @Published var totalFiles: Int = 0
     @Published var scannedCount: Int = 0
     @Published var isScanning: Bool = false
+    @Published var isPaused: Bool = false
     @Published var summary: ScanSummary?
     @Published var lastError: String?
     @Published var statusMessage: String?
@@ -116,6 +118,7 @@ final class ScanEngine: ObservableObject {
                 }
                 self.statusMessage = nil
                 self.isScanning = false
+                self.isPaused = false
             }
         }
 
@@ -130,8 +133,49 @@ final class ScanEngine: ObservableObject {
         }
     }
 
+    /// SIGSTOP suspends the process (and, separately, clamscan if that
+    /// phase is running) without killing it - confirmed the OS actually
+    /// stops scheduling it entirely (no progress at all) rather than
+    /// just deprioritizing it. Pauses the watchdog too, so a long,
+    /// deliberate pause is never mistaken for a stuck scan.
+    func pauseScan() {
+        guard isScanning, !isPaused, let pid = process?.processIdentifier else { return }
+        kill(pid, SIGSTOP)
+        ScanEngine.signalClamscan("STOP")
+        isPaused = true
+        watchdogTimer?.invalidate()
+        watchdogTimer = nil
+        // Deliberately leaves statusMessage as whatever phase it was in
+        // when paused (e.g. "Running ClamAV content scan...") - useful
+        // context for where it stopped. ScanView hides the spinner
+        // next to it while paused so it doesn't look like it's still
+        // actively working.
+    }
+
+    func resumeScan() {
+        guard isScanning, isPaused, let pid = process?.processIdentifier else { return }
+        kill(pid, SIGCONT)
+        ScanEngine.signalClamscan("CONT")
+        isPaused = false
+        // Fresh budget from here rather than trying to track cumulative
+        // paused time - a scan that was deliberately paused for a while
+        // shouldn't have that time held against the "is this stuck?"
+        // clock once it's actually running again.
+        scanStartedAt = Date()
+        startWatchdog()
+    }
+
     func cancelScan() {
         stopWatchdog()
+        // A stopped (SIGSTOP'd) process holds SIGTERM pending rather
+        // than acting on it until resumed - confirmed directly. Resume
+        // it first so Cancel actually takes effect immediately instead
+        // of silently doing nothing until/unless someone hits Resume.
+        if isPaused, let pid = process?.processIdentifier {
+            kill(pid, SIGCONT)
+            ScanEngine.signalClamscan("CONT")
+        }
+        isPaused = false
         process?.terminate()
         process = nil
         isScanning = false
@@ -169,6 +213,7 @@ final class ScanEngine: ObservableObject {
         process = nil
         ScanEngine.killOrphanedClamscan()
         isScanning = false
+        isPaused = false
         statusMessage = nil
         lastError = "Scan was taking far longer than expected and was stopped automatically. Try again with a smaller target."
     }
@@ -184,9 +229,17 @@ final class ScanEngine: ObservableObject {
     /// app-termination code, which doesn't have a live ScanEngine
     /// instance to call into.
     static func killOrphanedClamscan() {
+        signalClamscan("9")
+    }
+
+    /// Sends the given signal (pkill's -s NAME/NUM form, e.g. "9",
+    /// "STOP", "CONT") to any clamscan process matching this app's
+    /// specific invocation pattern (--file-list=), so it won't touch an
+    /// unrelated clamscan the user might be running for something else.
+    private static func signalClamscan(_ signal: String) {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
-        task.arguments = ["-9", "-f", "clamscan.*--file-list="]
+        task.arguments = ["-\(signal)", "-f", "clamscan.*--file-list="]
         task.standardOutput = Pipe()
         task.standardError = Pipe()
         try? task.run()
