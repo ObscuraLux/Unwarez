@@ -235,11 +235,10 @@ to reintroduce.
 - **Logo.** The earlier "sidebar logo" attempts were stuck on an asset
   with a black background that resisted automated cutout. A
   user-provided, already-correctly-cut-out transparent PNG
-  (`wolf_logo.png`) is now placed top-right of the window instead
-  (`.topTrailing` overlay on the `NavigationSplitView`, `.allowsHitTesting(false)`
-  per the "Hit testing" bug below). Verified against the real installed
-  app: clicked through all 5 sidebar tabs with it present, no missed
-  clicks, no crash.
+  (`wolf_logo.png`) is now placed in the window's title bar via
+  `.toolbar { ToolbarItem(placement: .primaryAction) { ... } }`.
+  Verified against the real installed app: clicked through all 5
+  sidebar tabs with it present, no missed clicks, no crash.
 - **Settings tab crash.** `SettingsStore.init()` called `load()`,
   which - after the Keychain migration - spawns a subprocess
   synchronously. An `@StateObject`'s `init()` runs during the view's
@@ -275,12 +274,29 @@ warning. `build_app.sh` handles it.
 
 The build produces a universal binary (arm64 + x86_64 via two
 `swiftc -target` passes + `lipo -create`), so one build serves both
-Intel and Apple Silicon Macs. Deployment target is 13.0, matching
-`Info.plist`'s `LSMinimumSystemVersion` - `NavigationSplitView`
-(`ContentView.swift`) requires macOS 13+, and SwiftUI itself has a
-hard floor of 10.15, so this can't go lower without dropping SwiftUI
-for AppKit. The `cli_scripts/` have no such floor - they're plain
-bash and run on essentially any macOS version.
+Intel and Apple Silicon Macs. Deployment target is 12.0, matching
+`Info.plist`'s `LSMinimumSystemVersion` (verified: `minos 12.0` in
+both slices via `otool -l`).
+
+Was 13.0 until `NavigationSplitView` (needs 13+) was swapped for
+`NavigationView`, and `Table` (ScanView's results grid, needs 12+) for
+a plain `List` - both verified with `swiftc -target
+arm64/x86_64-apple-macos12.0 -typecheck`, which is the reliable way to
+check this empirically rather than guessing at API availability from
+memory (surfaced two more floor-raising APIs that weren't obvious
+up front: `Scene.defaultSize` needs 13+, dropped entirely since
+`.frame(minWidth:minHeight:)` already keeps the window a sane size).
+
+**12.0 is the practical floor without a much bigger change.** Going
+below it (down toward SwiftUI's own hard floor of 10.15) would also
+require: reworking every `@StateObject` (needs 11.0, used in every
+view), replacing every SF Symbol icon (`Image(systemName:)`/
+`Label(systemImage:)`, needs 11.0, used throughout), and replacing
+every `.foregroundStyle` call (needs 12.0, ~40+ call sites) with
+`.foregroundColor`. True 10.10 support isn't reachable at all without
+dropping SwiftUI for AppKit entirely. The `cli_scripts/` have no
+version floor regardless - they're plain bash and run on essentially
+any macOS version, including 10.10.
 
 End users don't need Xcode — distribute the compiled `.app` in a DMG
 and Swift runtime libs ship with macOS. Only the build machine needs

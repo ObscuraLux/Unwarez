@@ -7,6 +7,17 @@ list of 167 known-malicious hashes. Everything below is OPTIONAL, but
 each piece genuinely strengthens what the app can catch. Read as much
 or as little as you want - the app won't nag you either way.
 
+macOS COMPATIBILITY
+--------------------
+This app (the .app in this DMG) requires macOS 12.0 Monterey (2021)
+or later - it's a universal binary, so that applies equally on Intel
+and Apple Silicon Macs. On an older Mac, the app itself won't open,
+but the exact same detection engine is also available as a
+Terminal-only tool with no such requirement: the CLI scripts (plain
+bash, no compiled binary) run on essentially any macOS version,
+including systems as old as 10.10 Yosemite. Ask wherever you got this
+DMG for the CLI version if you're on an older Mac.
+
 
 ==========================================================
 1. FIRST LAUNCH (required, one-time)

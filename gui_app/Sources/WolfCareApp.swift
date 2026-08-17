@@ -16,10 +16,13 @@ struct WolfCareApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     var body: some Scene {
+        // .defaultSize needs macOS 13+ and was dropped for the 12.0
+        // floor - .frame's minWidth/minHeight (10.15+) still keeps the
+        // window at a sane size, just without a specific larger
+        // preferred initial size.
         WindowGroup {
             ContentView()
                 .frame(minWidth: 850, minHeight: 550)
         }
-        .defaultSize(width: 950, height: 620)
     }
 }

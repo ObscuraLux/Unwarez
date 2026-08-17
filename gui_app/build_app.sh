@@ -25,11 +25,16 @@ mkdir -p "$BUILD_DIR/$BUNDLE_NAME/Contents/MacOS"
 mkdir -p "$BUILD_DIR/$BUNDLE_NAME/Contents/Resources"
 
 echo "[3/5] Compiling Swift sources (universal binary: arm64 + x86_64)..."
-# Deployment target is 13.0, matching Info.plist's LSMinimumSystemVersion -
-# NavigationSplitView (ContentView.swift) requires macOS 13+, and SwiftUI
-# itself has a hard floor of 10.15, so this can't go lower without dropping
-# SwiftUI for AppKit. The CLI scripts in cli_scripts/ have no such floor.
-DEPLOYMENT_TARGET="13.0"
+# Deployment target is 12.0, matching Info.plist's LSMinimumSystemVersion.
+# Was 13.0 (NavigationSplitView's floor); dropped to 12.0 by swapping
+# NavigationSplitView for NavigationView and Table for a plain List
+# (verified: `swiftc -target arm64-apple-macos12.0 -typecheck` and the
+# x86_64 target both pass clean). Going lower than 12.0 would also need
+# reworking @StateObject usage (11.0), every SF Symbol icon (11.0), and
+# .foregroundStyle (12.0) throughout the app - SwiftUI's own hard floor
+# is 10.15 regardless. The CLI scripts in cli_scripts/ have no version
+# floor at all.
+DEPLOYMENT_TARGET="12.0"
 swiftc -O -target "arm64-apple-macos${DEPLOYMENT_TARGET}" \
     -o "$BUILD_DIR/arm64-bin" \
     "$SCRIPT_DIR"/Sources/*.swift

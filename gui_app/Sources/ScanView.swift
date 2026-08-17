@@ -123,17 +123,35 @@ struct ScanView: View {
                 }
             }
 
-            Table(engine.results) {
-                TableColumn("File", value: \.name)
-                TableColumn("Status") { result in
-                    statusBadge(result.status)
+            // A plain List rather than Table: Table needs macOS 12+.
+            // No selection binding is used (matching this app's
+            // established workaround for the List(selection:) bug in
+            // DEVELOPER_NOTES.md), so a plain List works identically
+            // back to 10.15's original SwiftUI release.
+            VStack(spacing: 0) {
+                HStack {
+                    Text("File").frame(maxWidth: .infinity, alignment: .leading)
+                    Text("Status").frame(width: 120, alignment: .leading)
+                    Text("Size (KB)").frame(width: 80, alignment: .leading)
+                    Text("Detail").frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .width(120)
-                TableColumn("Size (KB)") { result in
-                    Text("\(result.sizeKB)")
+                .font(.caption.bold())
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+
+                List(engine.results) { result in
+                    HStack {
+                        Text(result.name)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        statusBadge(result.status)
+                            .frame(width: 120, alignment: .leading)
+                        Text("\(result.sizeKB)")
+                            .frame(width: 80, alignment: .leading)
+                        Text(result.detail)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
-                .width(80)
-                TableColumn("Detail", value: \.detail)
             }
             .frame(minHeight: 240)
 

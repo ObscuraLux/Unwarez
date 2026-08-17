@@ -26,7 +26,14 @@ struct ContentView: View {
     @StateObject private var scanEngine = ScanEngine()
 
     var body: some View {
-        NavigationSplitView {
+        // NavigationView rather than NavigationSplitView: the latter
+        // needs macOS 13+, NavigationView gives the same two-pane
+        // sidebar/detail layout on macOS back to 10.15. No selection
+        // binding is used here (plain Buttons + @State, matching the
+        // rest of this app's established workaround for the List/Picker
+        // selection-binding bug in DEVELOPER_NOTES.md), so nothing about
+        // that switch is version-sensitive.
+        NavigationView {
             VStack(alignment: .leading, spacing: 2) {
                 ForEach(SidebarItem.allCases) { item in
                     Button {
@@ -52,7 +59,7 @@ struct ContentView: View {
             }
             .padding(8)
             .navigationTitle("WolfCare")
-        } detail: {
+
             Group {
                 switch selection {
                 case .scan:
