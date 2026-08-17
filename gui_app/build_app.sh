@@ -13,19 +13,33 @@ BUNDLE_NAME="ObscuraLux Unwarez.app"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_DIR="$SCRIPT_DIR/build"
 
-echo "[1/5] Checking for Swift toolchain..."
+echo "[1/6] Bumping version..."
+# Info.plist is the single source of truth for the version - build_dmg.sh
+# reads it back out rather than hardcoding its own copy, so the two can
+# never drift. Every build_app.sh run bumps the patch number, so any two
+# builds are always distinguishable by version alone (no more silently
+# testing a stale build under an unchanged version number).
+PLIST="$SCRIPT_DIR/Info.plist"
+CURRENT_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$PLIST")
+IFS='.' read -r VMAJOR VMINOR VPATCH <<< "$CURRENT_VERSION"
+NEW_VERSION="${VMAJOR}.${VMINOR}.$((VPATCH + 1))"
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $NEW_VERSION" "$PLIST"
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $NEW_VERSION" "$PLIST"
+echo "  $CURRENT_VERSION -> $NEW_VERSION"
+
+echo "[2/6] Checking for Swift toolchain..."
 if ! command -v swiftc >/dev/null 2>&1; then
     echo "swiftc not found. Install Xcode Command Line Tools first:"
     echo "  xcode-select --install"
     exit 1
 fi
 
-echo "[2/5] Cleaning previous build..."
+echo "[3/6] Cleaning previous build..."
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR/$BUNDLE_NAME/Contents/MacOS"
 mkdir -p "$BUILD_DIR/$BUNDLE_NAME/Contents/Resources"
 
-echo "[3/5] Compiling Swift sources (universal binary: arm64 + x86_64)..."
+echo "[4/6] Compiling Swift sources (universal binary: arm64 + x86_64)..."
 # Deployment target is 12.0, matching Info.plist's LSMinimumSystemVersion.
 # Was 13.0 (NavigationSplitView's floor); dropped to 12.0 by swapping
 # NavigationSplitView for NavigationView and Table for a plain List
@@ -46,7 +60,7 @@ lipo -create -output "$BUILD_DIR/$BUNDLE_NAME/Contents/MacOS/$APP_NAME" \
     "$BUILD_DIR/arm64-bin" "$BUILD_DIR/x86_64-bin"
 rm -f "$BUILD_DIR/arm64-bin" "$BUILD_DIR/x86_64-bin"
 
-echo "[4/5] Assembling app bundle..."
+echo "[5/6] Assembling app bundle..."
 cp "$SCRIPT_DIR/Info.plist" "$BUILD_DIR/$BUNDLE_NAME/Contents/Info.plist"
 cp "$SCRIPT_DIR/AppIcon.icns" "$BUILD_DIR/$BUNDLE_NAME/Contents/Resources/AppIcon.icns"
 cp "$SCRIPT_DIR/ObscuraLuxUnwarez.sh" "$BUILD_DIR/$BUNDLE_NAME/Contents/Resources/ObscuraLuxUnwarez"
@@ -54,7 +68,7 @@ cp "$SCRIPT_DIR/ReleaseSealDatabase.json" "$BUILD_DIR/$BUNDLE_NAME/Contents/Reso
 chmod +x "$BUILD_DIR/$BUNDLE_NAME/Contents/Resources/ObscuraLuxUnwarez"
 chmod +x "$BUILD_DIR/$BUNDLE_NAME/Contents/MacOS/$APP_NAME"
 
-echo "[5/5] Ad-hoc code signing..."
+echo "[6/6] Ad-hoc code signing..."
 # Unlike our earlier bash-script apps, this is a compiled binary - Apple
 # Silicon refuses to run ANY compiled Mach-O executable with zero signature
 # at all, regardless of Gatekeeper/quarantine status. This is a different,

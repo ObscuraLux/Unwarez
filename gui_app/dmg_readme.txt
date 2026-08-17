@@ -1,4 +1,4 @@
-ObscuraLux Unwarez v1.6.5 - Setup Guide
+ObscuraLux Unwarez {{VERSION}} - Setup Guide
 ==========================================================
 
 This app works right away with zero setup - every scan already runs

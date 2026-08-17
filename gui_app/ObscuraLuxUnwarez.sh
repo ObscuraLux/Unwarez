@@ -220,6 +220,10 @@ KNOWN_BAD_SHA256=(
   "2ce574b3c03b2562b4f2303b5e7a4f262868913d01957689f2fdf40a3ab352f1|OGF: malicious remote payload"
   "ca862dec6ca4a74f2fafb53d510bad504f515f5e773ea1060206252007c59d98|OGF: malicious remote payload"
   "fe8b1b5b0ca9e7a95b33d3fcced833c1852c5a16662f71ddea41a97181532b14|OGF: malicious remote payload"
+  "eb01535b8e960f7d57500b326b82693b8f3afbd5f490fe9a607f5fe291be6c25|xdivcmp: fake Creative Cloud Desktop v6.8.1 installer (user-confirmed sample, 2026-08-17)"
+  "66658ee85e736e1ad65d6f2d1148b4a9776bd71c429818051eb73a9346b92891|xdivcmp: fake Creative Cloud Desktop v6.8.1 installer, zipped (user-confirmed sample, 2026-08-17)"
+  "c740d9dac078ccd0502d406e7fed8c4c062bedcd99126cf82d3c0e8cfd1e1e90|user-confirmed sample: fake 'Setup.app' installer, zipped (2026-08-17)"
+  "cb45f4ccd0279c6e4f40a87b1d1a60a204ab1c3d54b3bea6229223466fafa5e5|user-confirmed sample: fake 'Setup.app' installer, main executable (2026-08-17)"
 )
 
 KNOWN_BAD_MD5=(
@@ -336,6 +340,8 @@ KNOWN_BAD_MD5=(
   "0210c46785cbebd4248b449d00570d33|xdivcmp: fake Creative Cloud Desktop v6.8.1 (Illustrator v30.4.0 delivery)"
   "839219300c6aa43426a1a5b8b83cbd91|xdivcmp: fake Adobe Illustrator v30.5.1 Activation Tool.dmg"
   "a9058b5860f6f00c4de270a580810895|xdivcmp: fake Creative Cloud Desktop v6.8.1 (Illustrator v30.5.1 delivery)"
+  "0d671d68475714c0908fd53ef8a46ffe|user-confirmed sample: fake 'Setup.app' installer, zipped (2026-08-17)"
+  "fbfb2a61f2ee7b581619546e420d1f1d|user-confirmed sample: fake 'Setup.app' installer, main executable (2026-08-17)"
 )
 
 KNOWN_BAD_LAUNCHD_LABELS=("com.xdivcmp")
@@ -677,12 +683,38 @@ check_code_signature() {
 #    airtight.
 # ============================================================
 check_inner_hash_safe() {
-    local sha="$1"
+    local sha="$1" md5="${2:-}" inner_file="${3:-}"
     local kb_match rs_status
-    kb_match=$(check_known_bad_hash "$sha" "")
+    kb_match=$(check_known_bad_hash "$sha" "$md5")
+    [ -z "$kb_match" ] && kb_match=$(check_badfiles_hash "$md5")
     [ -n "$kb_match" ] && { echo "MALICIOUS:$kb_match"; return 0; }
-    rs_status=$(check_releaseseal_hash "$sha")
+    rs_status=$(check_releaseseal_hash "$sha" "$md5")
     [ "$rs_status" = "COMPROMISED" ] && { echo "MALICIOUS:ReleaseSeal"; return 0; }
+
+    # VT/MalwareBazaar for archive contents - restricted to plausible
+    # payloads (executable bit set, or .pkg/.dmg/.command/.sh) and
+    # capped by INNER_VT_BUDGET, not run for every resource/image/plist
+    # an archive happens to contain.
+    if [ -n "$inner_file" ] && [ "$INNER_VT_BUDGET" -gt 0 ]; then
+        local is_candidate=0
+        [ -x "$inner_file" ] && is_candidate=1
+        case "$inner_file" in
+            *.pkg|*.dmg|*.command|*.sh) is_candidate=1 ;;
+        esac
+        if [ "$is_candidate" -eq 1 ]; then
+            INNER_VT_BUDGET=$((INNER_VT_BUDGET - 1))
+            if [ -n "$VT_API_KEY" ]; then
+                local vt_inner
+                vt_inner=$(check_virustotal_hash "$sha")
+                [[ "$vt_inner" == MALICIOUS:* ]] && { echo "MALICIOUS:VirusTotal (${vt_inner#MALICIOUS:} engines)"; return 0; }
+            fi
+            if [ -n "$MB_API_KEY" ]; then
+                local mb_inner
+                mb_inner=$(check_malwarebazaar_hash "$sha")
+                [[ "$mb_inner" == MALICIOUS:* ]] && { echo "MALICIOUS:MalwareBazaar (${mb_inner#MALICIOUS:})"; return 0; }
+            fi
+        fi
+    fi
     return 1
 }
 
@@ -764,13 +796,14 @@ inspect_zip_contents() {
         return 1
     fi
 
-    local inner_file inner_sha inner_result count=0
+    local inner_file inner_sha inner_md5 inner_result count=0
     while IFS= read -r -d '' inner_file; do
         count=$((count + 1))
         [ "$count" -gt 200 ] && break
         inner_sha=$(shasum -a 256 "$inner_file" 2>/dev/null | awk '{print $1}')
         [ -z "$inner_sha" ] && continue
-        inner_result=$(check_inner_hash_safe "$inner_sha")
+        inner_md5=$(md5 -q "$inner_file" 2>/dev/null)
+        inner_result=$(check_inner_hash_safe "$inner_sha" "$inner_md5" "$inner_file")
         if [ -n "$inner_result" ]; then
             echo "${inner_result} (inside $(basename "$inner_file"))"
             rm -rf "$workdir"
@@ -811,7 +844,7 @@ inspect_dmg_contents() {
     fi
 
     local result="" count=0 warn_scripts="" cert_evidence=""
-    local inner_file inner_sha inner_result inner_app inner_exec inner_bin
+    local inner_file inner_sha inner_md5 inner_result inner_app inner_exec inner_bin
     local helper_script helper_label
 
     # Loose top-level helper scripts - release groups commonly ship an
@@ -839,7 +872,8 @@ inspect_dmg_contents() {
         [ "$count" -gt 30 ] && break
         inner_sha=$(shasum -a 256 "$inner_file" 2>/dev/null | awk '{print $1}')
         [ -z "$inner_sha" ] && continue
-        inner_result=$(check_inner_hash_safe "$inner_sha")
+        inner_md5=$(md5 -q "$inner_file" 2>/dev/null)
+        inner_result=$(check_inner_hash_safe "$inner_sha" "$inner_md5" "$inner_file")
         if [ -n "$inner_result" ]; then
             result="${inner_result} (inside $(basename "$inner_file"), found in $(basename "$file"))"
             break
@@ -860,7 +894,8 @@ inspect_dmg_contents() {
             [ -f "$inner_bin" ] || continue
             inner_sha=$(shasum -a 256 "$inner_bin" 2>/dev/null | awk '{print $1}')
             [ -z "$inner_sha" ] && continue
-            inner_result=$(check_inner_hash_safe "$inner_sha")
+            inner_md5=$(md5 -q "$inner_bin" 2>/dev/null)
+            inner_result=$(check_inner_hash_safe "$inner_sha" "$inner_md5" "$inner_bin")
             if [ -n "$inner_result" ]; then
                 result="${inner_result} (inside $(basename "$inner_app")'s main executable, found in $(basename "$file"))"
                 break
@@ -921,7 +956,7 @@ inspect_pkg_contents() {
     done < <(find "$workdir" -type f \( -name "preinstall" -o -name "postinstall" \) -print0 2>/dev/null)
 
     # Payload contents - a pkg Payload is gzip-compressed cpio, not tar.
-    local payload_file expanded_payload inner_file inner_sha inner_result count=0
+    local payload_file expanded_payload inner_file inner_sha inner_md5 inner_result count=0
     while IFS= read -r -d '' payload_file; do
         expanded_payload=$(mktemp -d) || continue
         if run_timeout 60 bash -c 'gunzip -dc "$1" 2>/dev/null | (cd "$2" && cpio -i --quiet 2>/dev/null)' _ "$payload_file" "$expanded_payload"; then
@@ -939,7 +974,8 @@ inspect_pkg_contents() {
                 [ "$count" -gt 100 ] && break
                 inner_sha=$(shasum -a 256 "$inner_file" 2>/dev/null | awk '{print $1}')
                 [ -z "$inner_sha" ] && continue
-                inner_result=$(check_inner_hash_safe "$inner_sha")
+                inner_md5=$(md5 -q "$inner_file" 2>/dev/null)
+                inner_result=$(check_inner_hash_safe "$inner_sha" "$inner_md5" "$inner_file")
                 if [ -n "$inner_result" ]; then
                     result="${inner_result} (inside $(basename "$inner_file") in package payload)"
                     break
@@ -1010,13 +1046,14 @@ inspect_unar_contents() {
         return 1
     fi
 
-    local inner_file inner_sha inner_result count=0
+    local inner_file inner_sha inner_md5 inner_result count=0
     while IFS= read -r -d '' inner_file; do
         count=$((count + 1))
         [ "$count" -gt 200 ] && break
         inner_sha=$(shasum -a 256 "$inner_file" 2>/dev/null | awk '{print $1}')
         [ -z "$inner_sha" ] && continue
-        inner_result=$(check_inner_hash_safe "$inner_sha")
+        inner_md5=$(md5 -q "$inner_file" 2>/dev/null)
+        inner_result=$(check_inner_hash_safe "$inner_sha" "$inner_md5" "$inner_file")
         if [ -n "$inner_result" ]; then
             echo "${inner_result} (inside $(basename "$inner_file"))"
             rm -rf "$workdir"
@@ -1156,6 +1193,13 @@ check_badfiles_hash() {
 # ============================================================
 VT_DISABLED_FOR_SESSION=0
 VT_LAST_CALL_TS=0
+# Caps how many archive-inner files get a VT/MalwareBazaar lookup for
+# the whole scan - VT throttles itself to 1 call/15s, so unrestricted
+# use here could turn a single archive full of executables into a
+# multi-minute scan. Only plausible payloads (executable bit set, or
+# .pkg/.dmg/.command/.sh) ever spend from this budget - see
+# check_inner_hash_safe.
+INNER_VT_BUDGET=15
 
 check_virustotal_hash() {
     local hash="$1"
@@ -1549,6 +1593,7 @@ run_scan() {
     echo -e "${BLUE}[*] Initializing scan...${NC}"
     [ "$GUI_MODE" -eq 1 ] && printf 'GUI\x1fSTATUS\x1fChecking ReleaseSeal database...\n'
     download_releaseseal_db
+    [ "$GUI_MODE" -eq 1 ] && printf 'GUI\x1fSTATUS\x1fChecking known bad files list...\n'
     download_badfiles_list
     if [ -n "$VT_API_KEY" ]; then
         echo -e "${BLUE}[*] VirusTotal lookups enabled (public API rate limits apply)${NC}"
@@ -1584,6 +1629,24 @@ run_scan() {
                 -o -name "*.7z" -o -name "*.tar" -o -name "*.tgz" -o -name "*.tbz2" -o -name "*.txz" \
                 -o -name "*.gz" -o -name "*.bz2" -o -name "*.xz" -o -name "*.iso" \) -print \) 2>/dev/null > "$FILE_LIST"
     fi
+
+    # Prioritize plain files (e.g. loose .app bundles) ahead of files
+    # that trigger archive deep-inspection (.zip/.dmg/.pkg/.rar/etc.) -
+    # those now also spend the rate-limited inner-archive VT/MalwareBazaar
+    # budget (see check_inner_hash_safe), so scanning them last keeps
+    # the common case from being delayed behind slower archive unpacking.
+    PLAIN_LIST=$(mktemp)
+    ARCHIVE_LIST=$(mktemp)
+    while IFS= read -r f; do
+        case "$f" in
+            *.[zZ][iI][pP]|*.[dD][mM][gG]|*.[pP][kK][gG]|*.[rR][aA][rR]|*.7[zZ]|*.[tT][aA][rR]|*.[tT][gG][zZ]|*.[tT][bB][zZ]2|*.[tT][xX][zZ]|*.[gG][zZ]|*.[bB][zZ]2|*.[xX][zZ]|*.[iI][sS][oO])
+                echo "$f" >> "$ARCHIVE_LIST" ;;
+            *)
+                echo "$f" >> "$PLAIN_LIST" ;;
+        esac
+    done < "$FILE_LIST"
+    cat "$PLAIN_LIST" "$ARCHIVE_LIST" > "$FILE_LIST"
+    rm -f "$PLAIN_LIST" "$ARCHIVE_LIST"
 
     TOTAL_FILES=$(wc -l < "$FILE_LIST" | tr -d ' ')
     [ "$TOTAL_FILES" -eq 0 ] && TOTAL_FILES=1
