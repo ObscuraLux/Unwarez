@@ -25,7 +25,8 @@ struct ArchiveInspector {
 
         for inner in DeepInspectionSupport.regularFiles(under: workdir, limit: 200) {
             guard let sha = Hashing.sha256(ofFileAt: inner) else { continue }
-            if case .malicious(let label) = await innerHashChecker.check(sha256: sha) {
+            let md5 = Hashing.md5(ofFileAt: inner) ?? ""
+            if case .malicious(let label) = await innerHashChecker.check(sha256: sha, md5: md5, path: inner.path) {
                 return .malicious("\(label) (inside \(inner.lastPathComponent))")
             }
         }

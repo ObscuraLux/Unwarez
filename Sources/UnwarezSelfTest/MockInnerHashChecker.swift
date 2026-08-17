@@ -11,7 +11,7 @@ actor MockInnerHashChecker: InnerHashChecking {
         flagged[sha256.lowercased()] = label
     }
 
-    func check(sha256: String) async -> InnerHashResult {
+    func check(sha256: String, md5: String, path: String) async -> InnerHashResult {
         if let label = flagged[sha256.lowercased()] {
             return .malicious(label)
         }

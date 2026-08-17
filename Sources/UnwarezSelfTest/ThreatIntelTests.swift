@@ -17,7 +17,7 @@ enum ThreatIntelTests {
         let clean = ThreatIntel.checkKnownBad(sha256: "0000000000000000000000000000000000000000000000000000000000000000")
         await TestKit.shared.expect(clean == nil, "unrelated hash does not match")
 
-        await TestKit.shared.expectEqual(ThreatIntel.database.sha256.count, 54, "embedded SHA256 list has the expected entry count")
-        await TestKit.shared.expectEqual(ThreatIntel.database.md5.count, 113, "embedded MD5 list has the expected entry count")
+        await TestKit.shared.expectEqual(ThreatIntel.database.sha256.count, 58, "embedded SHA256 list has the expected entry count")
+        await TestKit.shared.expectEqual(ThreatIntel.database.md5.count, 115, "embedded MD5 list has the expected entry count")
     }
 }

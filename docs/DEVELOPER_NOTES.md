@@ -25,10 +25,12 @@ Package.swift              SwiftPM manifest - one package, four targets
 Sources/
   UnwarezCore/              Shared library: the entire detection engine
     Resources/
-      ThreatIntel.json       Embedded local threat-intel (54 SHA256 +
-                              113 MD5 hashes, launchd/staging/IP/domain
+      ThreatIntel.json       Embedded local threat-intel (58 SHA256 +
+                              115 MD5 hashes, launchd/staging/IP/domain
                               indicators) - mechanically extracted from
                               the old bash arrays, not hand-transcribed
+                              (re-extracted whenever the source arrays
+                              gain entries - see git history for this file)
       ReleaseSealDatabase.json  Bundled fallback seed for the ReleaseSeal
                                  hash-reputation database
     Network/                ReleaseSeal, VirusTotal, MalwareBazaar,
@@ -117,7 +119,7 @@ order (free/local sources first). Only the first four can mark
 something `MALICIOUS`:
 
 1. **Local threat-intel list** — `ThreatIntel.swift`, loaded from the
-   bundled `ThreatIntel.json` resource (167 hashes: xdivcmp campaign +
+   bundled `ThreatIntel.json` resource (173 hashes: xdivcmp campaign +
    OGF piracy-bundle stealer)
 2. **ReleaseSeal** — `Network/ReleaseSealClient.swift`, GitHub-hosted
    hash reputation, cached 24h, falls back to the bundled seed JSON offline
@@ -137,13 +139,43 @@ warnings (`SUSPICIOUS_SCRIPT`, pkg/dmg loose-helper-script scanning).
 
 `UNVERIFIED` means "not found in these databases" — **not**
 "suspicious." Deep-inspection findings only ever ADD to `MALICIOUS`.
-Inner-file checks (`InnerHashChecker.swift`) use only local/free sources
-(embedded list + ReleaseSeal), never the rate-limited APIs - preserved
-exactly from the bash version's design, including one thing worth
-knowing: the old code's *comment* claimed CIRCL was also used for
-inner-file checks, but the actual bash code never called it there -
-`InnerHashChecker` here matches what the code actually did (list +
-ReleaseSeal only), not what the stale comment claimed.
+
+### Inner-file (archive-content) checking - two real fixes ported in
+
+`InnerHashChecker.swift` (an actor, `InnerHashChecker.swift`) is the
+funnel every deep inspector uses for inner-file verdicts. Two real bugs
+in the original design were fixed upstream (a bash-side commit,
+`99d2cb2`, made after this rewrite had already branched off) and ported
+into the Swift version rather than left behind:
+
+1. **MD5 was never computed for inner files.** Every inner-file
+   extraction path now computes both SHA256 and MD5 and threads both
+   through `ThreatIntel.checkKnownBad`/`BadFilesClient.check`/
+   `ReleaseSealClient.checkHash` - previously only SHA256 was ever
+   computed for a file found inside a zip/dmg/pkg/archive, so the
+   MD5-keyed embedded list and badfiles.txt feed could never match
+   anything found there, only the outer container's own hash. This was
+   the real bug behind "scans but doesn't flag" reports; verified fixed
+   directly (`InnerHashCheckerTests.swift` in the self-test suite - a
+   known-bad MD5 paired with a deliberately unrelated SHA256, which only
+   passes if MD5 is actually being consulted).
+2. **VirusTotal/MalwareBazaar now also reachable for archive contents** -
+   previously local-sources-only (embedded list + ReleaseSeal) to
+   protect the scan's rate-limit quota, since an archive can contain
+   hundreds of files. Now capped at 15 lookups per scan
+   (`InnerHashChecker.vtBudgetPerScan`) and restricted to "plausible
+   payloads" (executable bit set, or `.pkg`/`.dmg`/`.command`/`.sh`), so
+   a zip full of resource files can't burn the budget. The budget is
+   scan-scoped (a fresh `InnerHashChecker`/`DeepInspector` is
+   constructed at the start of each `ScanPipeline.execute()` call, not
+   once for the pipeline's whole lifetime) so a long-lived GUI session
+   gets a full budget on every scan, not just the first.
+
+`FileEnumerator.prioritizingPlainFiles` also queues plain files (loose
+`.app` bundles, standalone binaries) ahead of anything that triggers
+deep inspection, since archives now carry this rate-limited inner-VT
+work on top of their own unpacking overhead and shouldn't delay the
+common case.
 
 ### No more shell-outs to `security`/`crontab`/GNU `timeout`
 
@@ -230,6 +262,11 @@ Covers:
   `gunzip`/`cpio` pipeline that was the site of the command-injection fix
   (see below). The archive-family case (`.tar` via `unar`) skips
   gracefully if `unar` isn't installed, matching the app's own behavior.
+- **InnerHashChecker** — a direct regression test for the MD5-threading
+  fix described in "Inner-file (archive-content) checking" above: a
+  known-bad embedded-list MD5 paired with a deliberately unrelated
+  SHA256, which only passes if MD5 is actually being consulted rather
+  than silently ignored.
 
 If a machine with full Xcode becomes available, adding a proper
 `XCTest`/`swift-testing` `.testTarget` back to `Package.swift` is still
@@ -244,7 +281,7 @@ that's not an option, it doesn't preclude having both.
 
 - **Whole package builds clean** (`swift build`), all four targets, zero
   warnings
-- **`unwarez-selftest`**: 22 passing, 1 gracefully skipped (`unar` not
+- **`unwarez-selftest`**: 24 passing, 1 gracefully skipped (`unar` not
   installed) - see above for exactly what's covered
 - **Local threat-intel matching, hashing, ReleaseSeal (live), deep
   inspection (real zip/dmg/pkg fixtures)** — all covered by
@@ -382,6 +419,14 @@ Ad-hoc signing is **mandatory**, not optional — Apple Silicon refuses
 to run any compiled Mach-O with no signature at all, separate from (and
 stricter than) the "unidentified developer" Gatekeeper warning.
 `build_app.sh` handles it.
+
+`packaging/Info.plist` is the single source of truth for the app
+version - `build_app.sh` auto-bumps the patch number on every run
+(`PlistBuddy`), and `build_dmg.sh`/`dmg_readme.txt` (via a `{{VERSION}}`
+placeholder) read it back out live rather than keeping their own copies,
+so a build's version can never drift out of sync or go ambiguous. Ported
+from the same upstream bash-side commit as the inner-hash-checker fixes
+above.
 
 Deployment target is 12.0 (`Package.swift`'s `platforms: [.macOS(.v12)]`,
 matching `Info.plist`'s `LSMinimumSystemVersion`) - unchanged from the

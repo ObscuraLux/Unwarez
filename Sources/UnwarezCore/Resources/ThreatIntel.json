@@ -215,6 +215,22 @@
     {
       "hash": "fe8b1b5b0ca9e7a95b33d3fcced833c1852c5a16662f71ddea41a97181532b14",
       "label": "OGF: malicious remote payload"
+    },
+    {
+      "hash": "eb01535b8e960f7d57500b326b82693b8f3afbd5f490fe9a607f5fe291be6c25",
+      "label": "xdivcmp: fake Creative Cloud Desktop v6.8.1 installer (user-confirmed sample, 2026-08-17)"
+    },
+    {
+      "hash": "66658ee85e736e1ad65d6f2d1148b4a9776bd71c429818051eb73a9346b92891",
+      "label": "xdivcmp: fake Creative Cloud Desktop v6.8.1 installer, zipped (user-confirmed sample, 2026-08-17)"
+    },
+    {
+      "hash": "c740d9dac078ccd0502d406e7fed8c4c062bedcd99126cf82d3c0e8cfd1e1e90",
+      "label": "user-confirmed sample: fake 'Setup.app' installer, zipped (2026-08-17)"
+    },
+    {
+      "hash": "cb45f4ccd0279c6e4f40a87b1d1a60a204ab1c3d54b3bea6229223466fafa5e5",
+      "label": "user-confirmed sample: fake 'Setup.app' installer, main executable (2026-08-17)"
     }
   ],
   "md5": [
@@ -669,6 +685,14 @@
     {
       "hash": "a9058b5860f6f00c4de270a580810895",
       "label": "xdivcmp: fake Creative Cloud Desktop v6.8.1 (Illustrator v30.5.1 delivery)"
+    },
+    {
+      "hash": "0d671d68475714c0908fd53ef8a46ffe",
+      "label": "user-confirmed sample: fake 'Setup.app' installer, zipped (2026-08-17)"
+    },
+    {
+      "hash": "fbfb2a61f2ee7b581619546e420d1f1d",
+      "label": "user-confirmed sample: fake 'Setup.app' installer, main executable (2026-08-17)"
     }
   ],
   "launchdLabels": [

@@ -11,14 +11,27 @@ BUNDLE_NAME="ObscuraLux Unwarez.app"
 GUI_PRODUCT="ObscuraLuxUnwarezGUI"
 CLI_PRODUCT="unwarez-cli"
 
-echo "[1/5] Checking for Swift toolchain..."
+echo "[1/6] Bumping version..."
+# Info.plist is the single source of truth for the version - build_dmg.sh
+# reads it back out rather than hardcoding its own copy, so the two can
+# never drift. Every build_app.sh run bumps the patch number, so any two
+# builds are always distinguishable by version alone.
+PLIST="$PACKAGING_DIR/Info.plist"
+CURRENT_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$PLIST")
+IFS='.' read -r VMAJOR VMINOR VPATCH <<< "$CURRENT_VERSION"
+NEW_VERSION="${VMAJOR}.${VMINOR}.$((VPATCH + 1))"
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $NEW_VERSION" "$PLIST"
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $NEW_VERSION" "$PLIST"
+echo "  $CURRENT_VERSION -> $NEW_VERSION"
+
+echo "[2/6] Checking for Swift toolchain..."
 if ! command -v swift >/dev/null 2>&1; then
     echo "swift not found. Install Xcode Command Line Tools first:"
     echo "  xcode-select --install"
     exit 1
 fi
 
-echo "[2/5] Cleaning previous build..."
+echo "[3/6] Cleaning previous build..."
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR/$BUNDLE_NAME/Contents/MacOS"
 mkdir -p "$BUILD_DIR/$BUNDLE_NAME/Contents/Resources"
@@ -32,7 +45,7 @@ mkdir -p "$BUILD_DIR/$BUNDLE_NAME/Contents/Resources"
 # do a single-arch release build per architecture, so this does the same
 # two-pass-plus-lipo dance the previous raw-swiftc version of this script
 # used, just via `swift build` instead.
-echo "[3/5] Building both architectures (arm64 + x86_64)..."
+echo "[4/6] Building both architectures (arm64 + x86_64)..."
 cd "$REPO_ROOT"
 for arch in arm64 x86_64; do
     swift build -c release --arch "$arch" --product "$GUI_PRODUCT"
@@ -49,7 +62,7 @@ lipo -create -output "$BUILD_DIR/$BUNDLE_NAME/Contents/Resources/$CLI_PRODUCT" \
 chmod +x "$BUILD_DIR/$BUNDLE_NAME/Contents/MacOS/$GUI_PRODUCT" \
     "$BUILD_DIR/$BUNDLE_NAME/Contents/Resources/$CLI_PRODUCT"
 
-echo "[4/5] Assembling app bundle..."
+echo "[5/6] Assembling app bundle..."
 cp "$PACKAGING_DIR/Info.plist" "$BUILD_DIR/$BUNDLE_NAME/Contents/Info.plist"
 cp "$PACKAGING_DIR/AppIcon.icns" "$BUILD_DIR/$BUNDLE_NAME/Contents/Resources/AppIcon.icns"
 
@@ -63,7 +76,7 @@ if [ -z "$RESOURCE_BUNDLE" ]; then
 fi
 cp -R "$RESOURCE_BUNDLE" "$BUILD_DIR/$BUNDLE_NAME/Contents/Resources/"
 
-echo "[5/5] Ad-hoc code signing..."
+echo "[6/6] Ad-hoc code signing..."
 # Apple Silicon refuses to run ANY compiled Mach-O executable with zero
 # signature at all, regardless of Gatekeeper/quarantine status - a
 # different, stricter check than the "unidentified developer" warning.

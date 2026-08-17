@@ -46,7 +46,8 @@ struct DMGInspector {
             count += 1
             if count > 30 { break }
             guard let sha = Hashing.sha256(ofFileAt: inner) else { continue }
-            if case .malicious(let label) = await innerHashChecker.check(sha256: sha) {
+            let md5 = Hashing.md5(ofFileAt: inner) ?? ""
+            if case .malicious(let label) = await innerHashChecker.check(sha256: sha, md5: md5, path: inner.path) {
                 maliciousResult = "\(label) (inside \(inner.lastPathComponent), found in \(outerName))"
                 break
             }
@@ -65,7 +66,8 @@ struct DMGInspector {
                       !execName.contains("/"), execName != ".", execName != ".." else { continue }
                 let bin = app.appendingPathComponent("Contents/MacOS/\(execName)")
                 guard FileManager.default.fileExists(atPath: bin.path), let sha = Hashing.sha256(ofFileAt: bin) else { continue }
-                if case .malicious(let label) = await innerHashChecker.check(sha256: sha) {
+                let md5 = Hashing.md5(ofFileAt: bin) ?? ""
+                if case .malicious(let label) = await innerHashChecker.check(sha256: sha, md5: md5, path: bin.path) {
                     maliciousResult = "\(label) (inside \(app.lastPathComponent)'s main executable, found in \(outerName))"
                     break
                 }

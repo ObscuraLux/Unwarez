@@ -32,6 +32,7 @@ struct UnwarezSelfTestEntry {
         await ThreatIntelTests.run()
         await HashingTests.run()
         await QuarantineTests.run()
+        await InnerHashCheckerTests.run()
         await DeepInspectionTests.run()
         await ReleaseSealTests.run() // last: needs network, slowest suite
 

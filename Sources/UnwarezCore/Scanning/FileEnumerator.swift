@@ -7,7 +7,34 @@ public enum FileEnumerator {
     static let scannableExtensions: Set<String> = [
         "dmg", "zip", "pkg", "app", "rar", "7z", "tar", "tgz", "tbz2", "txz", "gz", "bz2", "xz", "iso",
     ]
+
+    /// Extensions that trigger `DeepInspector` (everything scannable
+    /// except `.app`, which is never itself a deep-inspection container).
+    /// Used to scan plain files first - see `prioritizingPlainFiles`.
+    private static let archiveTriggeringExtensions: Set<String> = [
+        "dmg", "zip", "pkg", "rar", "7z", "tar", "tgz", "tbz2", "txz", "gz", "bz2", "xz", "iso",
+    ]
+
     private static let maxDepth = 10
+
+    /// Plain files (e.g. loose .app bundles) ahead of files that trigger
+    /// archive deep-inspection - those spend the rate-limited inner-
+    /// archive VT/MalwareBazaar budget (see `InnerHashChecker`) and
+    /// unpacking overhead, so scanning them last keeps the common case
+    /// from being delayed behind slower archive work. A stable partition
+    /// (not a sort), so relative order within each group is unchanged.
+    public static func prioritizingPlainFiles(_ paths: [String]) -> [String] {
+        var plain: [String] = []
+        var archives: [String] = []
+        for path in paths {
+            if archiveTriggeringExtensions.contains((path as NSString).pathExtension.lowercased()) {
+                archives.append(path)
+            } else {
+                plain.append(path)
+            }
+        }
+        return plain + archives
+    }
 
     public static func enumerate(target: ScanTarget, customPath: String?, fileListPath: String?) -> [String] {
         let home = FileManager.default.homeDirectoryForCurrentUser.path

@@ -52,16 +52,13 @@ public actor ScanPipeline {
     private let badFiles = BadFilesClient()
     private let virusTotal = VirusTotalClient()
     private let clamAV = ClamAVScanner()
-    private let deepInspector: DeepInspector
     private let clamAVCancellationToken = ProcessCancellationToken()
 
     private var runningTask: Task<Void, Never>?
     private var isPaused = false
     private var pauseWaiters: [CheckedContinuation<Void, Never>] = []
 
-    public init() {
-        deepInspector = DeepInspector(releaseSeal: releaseSeal)
-    }
+    public init() {}
 
     public func run(options: ScanOptions) -> AsyncStream<ScanEvent> {
         AsyncStream { continuation in
@@ -114,6 +111,7 @@ public actor ScanPipeline {
 
         continuation.yield(.status("Checking ReleaseSeal database..."))
         await releaseSeal.ensureLoaded()
+        continuation.yield(.status("Checking known bad files list..."))
         await badFiles.ensureLoaded()
 
         continuation.yield(.status("Checking for known threats..."))
@@ -122,7 +120,14 @@ public actor ScanPipeline {
         _ = ThreatIntel.checkOGFFilenames()
 
         continuation.yield(.status("Finding files to scan..."))
-        let filePaths = FileEnumerator.enumerate(target: options.target, customPath: options.customPath, fileListPath: options.fileListPath)
+        let filePaths = FileEnumerator.prioritizingPlainFiles(
+            FileEnumerator.enumerate(target: options.target, customPath: options.customPath, fileListPath: options.fileListPath)
+        )
+
+        // Constructed fresh per scan (not once for the pipeline's whole
+        // lifetime) so the current API keys and a full 15-lookup budget
+        // are always in effect.
+        let deepInspector = DeepInspector(releaseSeal: releaseSeal, badFiles: badFiles, virusTotal: virusTotal, vtKey: vtKey, mbKey: mbKey)
 
         guard let hashLog = ScanReport.makeHashLog() else { return }
         defer { hashLog.close() }

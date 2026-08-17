@@ -11,8 +11,13 @@ public struct DeepInspector {
     private let pkg: PKGInspector
     private let archive: ArchiveInspector
 
-    public init(releaseSeal: ReleaseSealClient) {
-        self.init(innerHashChecker: InnerHashChecker(releaseSeal: releaseSeal), releaseSeal: releaseSeal)
+    /// `vtKey`/`mbKey` and the fresh 15-lookup-per-scan budget are
+    /// captured once here - construct a new `DeepInspector` at the start
+    /// of each scan (not once for a whole app's lifetime) so a changed
+    /// API key or a fresh budget actually takes effect.
+    public init(releaseSeal: ReleaseSealClient, badFiles: BadFilesClient, virusTotal: VirusTotalClient, vtKey: String?, mbKey: String?) {
+        let checker = InnerHashChecker(releaseSeal: releaseSeal, badFiles: badFiles, virusTotal: virusTotal, vtKey: vtKey, mbKey: mbKey)
+        self.init(innerHashChecker: checker, releaseSeal: releaseSeal)
     }
 
     /// Injects a custom hash checker instead of the real threat-intel/
