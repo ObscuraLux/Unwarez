@@ -94,6 +94,7 @@ enum InteractiveMenu {
         let options = ScanOptions(target: target, customPath: customPath, isAutoMode: false)
         if let summary = await ScanRunner.run(options: options, verbose: true) {
             ScanRunner.printSummary(summary)
+            ReportExport.promptAndExport(reportPath: summary.reportPath)
         }
         Terminal.pause()
     }

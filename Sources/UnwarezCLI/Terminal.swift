@@ -14,9 +14,20 @@ enum Terminal {
         print("\u{001B}[2J\u{001B}[H", terminator: "")
     }
 
+    /// `readLine()` returns `nil` on EOF (stdin closed/redirected from an
+    /// exhausted source, e.g. `/dev/null` or a script that ran out of
+    /// input) - treating that as an empty string would make every
+    /// interactive menu loop spin forever re-prompting into a menu that
+    /// can never match "", pegging a CPU core with no way out short of
+    /// being killed externally. Exiting is the only sane response: there
+    /// is no more input to interact with.
     static func prompt(_ text: String) -> String {
         print(text, terminator: "")
-        return (readLine() ?? "").trimmingCharacters(in: .whitespaces)
+        guard let line = readLine() else {
+            print("\n\(yellow)No more input on stdin - exiting.\(reset)")
+            exit(1)
+        }
+        return line.trimmingCharacters(in: .whitespaces)
     }
 
     static func banner() {

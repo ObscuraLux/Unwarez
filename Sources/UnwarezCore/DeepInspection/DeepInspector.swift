@@ -12,7 +12,16 @@ public struct DeepInspector {
     private let archive: ArchiveInspector
 
     public init(releaseSeal: ReleaseSealClient) {
-        let innerHashChecker = InnerHashChecker(releaseSeal: releaseSeal)
+        self.init(innerHashChecker: InnerHashChecker(releaseSeal: releaseSeal), releaseSeal: releaseSeal)
+    }
+
+    /// Injects a custom hash checker instead of the real threat-intel/
+    /// ReleaseSeal sources. Exists for testing: a real malware hash can't
+    /// be reverse-engineered into fixture content, but the extraction/
+    /// traversal/gating/cleanup mechanism each inspector implements can
+    /// still be exercised end-to-end this way, against a planted file
+    /// whose hash the test controls.
+    public init(innerHashChecker: any InnerHashChecking, releaseSeal: ReleaseSealClient = ReleaseSealClient()) {
         self.zip = ZipInspector(innerHashChecker: innerHashChecker)
         self.dmg = DMGInspector(innerHashChecker: innerHashChecker, releaseSeal: releaseSeal)
         self.pkg = PKGInspector(innerHashChecker: innerHashChecker)

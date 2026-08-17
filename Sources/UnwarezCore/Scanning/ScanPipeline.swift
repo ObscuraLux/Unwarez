@@ -247,7 +247,7 @@ public actor ScanPipeline {
             )
         }
 
-        continuation.yield(.done(ScanSummary(scanned: scanCount, detected: detected, unverified: unverified, quarantined: quarantined)))
+        continuation.yield(.done(ScanSummary(scanned: scanCount, detected: detected, unverified: unverified, quarantined: quarantined, reportPath: reportPath.path)))
     }
 
     private func maliciousDetail(

@@ -20,7 +20,7 @@ what replaced it.
 ## Repository layout
 
 ```
-Package.swift              SwiftPM manifest - one package, three targets
+Package.swift              SwiftPM manifest - one package, four targets
 
 Sources/
   UnwarezCore/              Shared library: the entire detection engine
@@ -42,10 +42,15 @@ Sources/
     ClamAV.swift, CodeSignature.swift, EmailAlert.swift
 
   UnwarezCLI/                Terminal executable ("unwarez-cli") -
-                              interactive menu + --auto/--target=/--path=/
-                              --files= non-interactive mode for launchd
+                              interactive menu (incl. CSV/PDF export) +
+                              --auto/--target=/--path=/--files=
+                              non-interactive mode for launchd
 
   UnwarezGUI/                Native macOS SwiftUI app ("ObscuraLuxUnwarezGUI")
+
+  UnwarezSelfTest/           Dependency-free test runner ("unwarez-selftest")
+                              - see "Automated tests" below for why this
+                              exists instead of an XCTest/.testTarget
 
 packaging/                  Everything needed to produce a distributable
                              .app + DMG (not part of the Swift package)
@@ -186,67 +191,124 @@ anywhere.
 
 ---
 
+## Automated tests: `unwarez-selftest`
+
+`XCTest` and swift-testing's `Testing` module both require full Xcode -
+neither `import XCTest` nor `import Testing` type-checks under Command
+Line Tools alone (confirmed directly: both fail with "no such module").
+Since this project is deliberately buildable with CLT only (no
+`.xcodeproj`, `packaging/build_app.sh` has never needed more), `swift
+test` isn't an option here, or for anyone else building from source
+without full Xcode.
+
+`Sources/UnwarezSelfTest/` is a plain executable target instead - a
+~40-line dependency-free assertion helper (`TestKit.swift`) plus real
+test suites, run via:
+
+```bash
+swift run unwarez-selftest
+```
+
+Covers:
+- **ThreatIntel** — known SHA256/MD5 entries match with the correct
+  label, an unrelated hash doesn't, loaded counts match the source data
+- **Hashing** — SHA256/MD5 against published test vectors (`"abc"`, `""`)
+- **QuarantineEntry** — manifest-line encode/decode round-trip, and a
+  malformed line failing to decode rather than crashing
+- **ReleaseSealClient** — a live round-trip against the real GitHub-hosted
+  database (known-verified hash, known-compromised MD5, unrelated hash)
+- **Deep inspection** — real `.zip`/`.dmg`/`.pkg` fixtures, each built
+  with the same system tool the app itself uses to read them (`zip`,
+  `hdiutil`, `pkgbuild`), containing one planted file whose content (and
+  therefore hash) the test controls. Since a real malware hash can't be
+  reverse-engineered into fixture content, these inject a
+  `MockInnerHashChecker` (via `DeepInspector.init(innerHashChecker:)`,
+  added specifically for this) instead of using the real threat-intel/
+  ReleaseSeal sources - the extraction/mounting/traversal/gating/cleanup
+  mechanism is exercised for real, only the hash-matching decision is
+  faked. The `.pkg` case doubles as regression coverage for the
+  `gunzip`/`cpio` pipeline that was the site of the command-injection fix
+  (see below). The archive-family case (`.tar` via `unar`) skips
+  gracefully if `unar` isn't installed, matching the app's own behavior.
+
+If a machine with full Xcode becomes available, adding a proper
+`XCTest`/`swift-testing` `.testTarget` back to `Package.swift` is still
+worth doing - `unwarez-selftest` fills the gap in an environment where
+that's not an option, it doesn't preclude having both.
+
+---
+
 ## Testing status — read this before trusting anything
 
 ### Verified
 
-- **Whole package builds clean** (`swift build`), all three targets,
-  zero warnings beyond a since-resolved SwiftPM test-target path notice
-- **Local threat-intel matching** — verified at runtime (not just
-  compile-checked) against the real embedded data: known SHA256 and MD5
-  entries match with the correct label, an unrelated hash correctly
-  returns no match, and the loaded counts (54 SHA256 / 113 MD5) match
-  the source data exactly
-- **ReleaseSeal, live** — verified at runtime against the real
-  GitHub-hosted database: both a known-verified-artifact hash and a
-  known-compromised hash resolve correctly, meaning the download, 24h
-  cache, JSON parsing, and matching logic all work end-to-end over a
-  real network call, not just against the bundled offline seed
-- **CLI end-to-end** — `unwarez-cli --auto --target=4 --path=...` against
-  a real directory containing a `.zip`: file enumeration, hashing, zip
-  deep-inspection (extract, size-cap check, inner-file hashing), and
-  report/hash-log writing all ran and produced correct output and exit
-  code 0
+- **Whole package builds clean** (`swift build`), all four targets, zero
+  warnings
+- **`unwarez-selftest`**: 22 passing, 1 gracefully skipped (`unar` not
+  installed) - see above for exactly what's covered
+- **Local threat-intel matching, hashing, ReleaseSeal (live), deep
+  inspection (real zip/dmg/pkg fixtures)** — all covered by
+  `unwarez-selftest`, see above
+- **CLI end-to-end, interactively** — a real driven session (disclaimer →
+  main menu → scan a custom directory → summary → CSV+PDF export →
+  back to main menu) produces correct output at every step; CSV export
+  produces a correctly-quoted row per scanned file, PDF export produces
+  a real, valid multi-page-capable PDF (verified via `file`: "PDF
+  document, version 1.3")
+- **CLI end-to-end, non-interactively** — `unwarez-cli --auto --target=4
+  --path=...` against a real directory: file enumeration, hashing, zip
+  deep-inspection, and report/hash-log writing all produce correct
+  output and exit code 0
 - **GUI app** — builds as a real, ad-hoc-signed, universal (arm64 +
   x86_64) `.app` via `packaging/build_app.sh`; launches and stays running
   (verified via `open` + process check + crash-log check) without
   crashing on startup
 - **Command-injection class of bug structurally eliminated** — see the
   security note above
+- **A real EOF-handling bug, found and fixed during this pass**: every
+  interactive-menu prompt used `readLine() ?? ""`, so once stdin hit EOF
+  (piped input running out, or stdin redirected from `/dev/null`) every
+  subsequent prompt silently got `""` forever - the menu loop never
+  matches `""` against any option, so it spun at full CPU printing
+  "Invalid selection" indefinitely with no way out short of being killed
+  externally. Found while driving the CLI non-interactively for the
+  testing above. `Terminal.prompt` (`Sources/UnwarezCLI/Terminal.swift`)
+  now treats `nil` from `readLine()` as "no more input" and exits
+  cleanly with a message instead.
+- **A real pre-existing bug in the *original* bash tool, found while
+  porting CSV/PDF export**: `textutil -convert pdf` (what
+  `export_report` used) fails on current macOS (confirmed: Sequoia
+  15.6.1) with "Invalid output format" - `textutil -help` on this system
+  doesn't list `pdf` among its supported `-convert` formats at all
+  (txt/rtf/rtfd/html/doc/docx/odt/wordml/webarchive only). This was
+  already broken before this rewrite touched it, not a regression -
+  `unwarez-cli`'s PDF export (`Sources/UnwarezCLI/PDFExport.swift`) was
+  written from scratch using CoreGraphics/CoreText directly (a
+  `CGContext`-backed PDF context, `CTFramesetter` for pagination) instead
+  of relying on `textutil`, and is what's actually verified working above.
 
 ### Not yet verified / open follow-ups
 
-- **DMG/PKG deep inspection with a real planted malicious hash** — the
-  zip path was exercised end-to-end with real detection; dmg/pkg
-  inspection compiles and follows the same code shape (verified
-  line-by-line against the original bash logic during the port) but
-  hasn't been exercised against a real crafted `.dmg`/`.pkg` fixture the
-  way the bash version's testing notes describe. Same caveat applies to
-  the RAR/7z/tar-family paths via `unar`.
 - **GUI interactive flows** (Settings save round-trip through the real
   Keychain, Scheduled Scans tab writing a real LaunchAgent, Quarantine
   restore/delete, Pause/Resume mid-scan) — the underlying store logic is
   either unit-verified indirectly (Keychain/config share the exact code
   path the CLI's runtime-tested settings menu uses) or type-checks
-  against the same `UnwarezCore` APIs the CLI already exercised, but
-  none of the SwiftUI views themselves have been clicked through in a
-  running window.
-- **`XCTest` is unavailable in this environment** (Command Line Tools
-  only, no full Xcode - `xcrun --find xctest` fails) - there is
-  currently no automated test target. Verification so far has been via
-  real runtime execution (the CLI, and a temporary self-test harness
-  removed after confirming results) rather than `swift test`. If a
-  machine with full Xcode is available, adding an `XCTest` target back
-  (a `.testTarget` in `Package.swift`) is worth doing.
-- **CSV/PDF report export** (`export_report` in the old bash version)
-  was not ported to `unwarez-cli` - the CLI writes the same `.txt`
-  report/hash-log files, but doesn't offer an interactive export step.
-- **Deep-inspection subprocess cancellation** - per above, Cancel is
-  wired through Task cancellation + a kill-switch for ClamAV
-  specifically, not through every individual `unzip`/`hdiutil`/`pkgutil`/
-  `unar` call. Worst case, Cancel during deep inspection of one file
-  takes up to that tool's own timeout (30-60s) to actually stop, not
-  instant.
+  against the same `UnwarezCore` APIs the CLI/self-test already
+  exercised, but none of the SwiftUI views themselves have been clicked
+  through in a running window.
+- **RAR/7z specifically** (as opposed to `.tar`, which
+  `unwarez-selftest` does cover via `unar`) haven't been exercised even
+  though they go through the identical `ArchiveInspector` code path -
+  `unar` itself isn't installed in the environment this was built in.
+  Low risk (same code path as the tested `.tar` case, format-specific
+  behavior is entirely inside `unar` itself) but worth a real pass if
+  `unar` is available.
+- **Deep-inspection subprocess cancellation** - Cancel is wired through
+  Task cancellation + a kill-switch for ClamAV specifically, not through
+  every individual `unzip`/`hdiutil`/`pkgutil`/`unar` call. Worst case,
+  Cancel during deep inspection of one file takes up to that tool's own
+  timeout (30-60s) to actually stop, not instant.
 - **A preserved-as-is quirk, not introduced by this rewrite**: both the
   old bash `find` file-enumeration filter and the new
   `FileEnumerator.swift` match `.app` only via `-type f` (a regular

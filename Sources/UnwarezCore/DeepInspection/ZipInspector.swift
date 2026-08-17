@@ -1,7 +1,7 @@
 import Foundation
 
 struct ZipInspector {
-    let innerHashChecker: InnerHashChecker
+    let innerHashChecker: any InnerHashChecking
 
     func inspect(path: String) async -> DeepInspectionResult {
         guard FileManager.default.isExecutableFile(atPath: "/usr/bin/unzip") else { return .clean }

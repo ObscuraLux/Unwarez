@@ -6,7 +6,7 @@ import Foundation
 /// (license policy); `unar` (`brew install unar`) is the actively
 /// maintained replacement.
 struct ArchiveInspector {
-    let innerHashChecker: InnerHashChecker
+    let innerHashChecker: any InnerHashChecking
 
     func inspect(path: String) async -> DeepInspectionResult {
         guard let unarPath = Self.findUnar() else { return .clean }

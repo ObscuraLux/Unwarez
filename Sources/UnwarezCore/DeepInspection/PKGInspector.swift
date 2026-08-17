@@ -1,7 +1,7 @@
 import Foundation
 
 struct PKGInspector {
-    let innerHashChecker: InnerHashChecker
+    let innerHashChecker: any InnerHashChecking
 
     func inspect(path: String) async -> DeepInspectionResult {
         guard FileManager.default.isExecutableFile(atPath: "/usr/sbin/pkgutil") else { return .clean }

@@ -1,7 +1,7 @@
 import Foundation
 
 struct DMGInspector {
-    let innerHashChecker: InnerHashChecker
+    let innerHashChecker: any InnerHashChecking
     let releaseSeal: ReleaseSealClient
 
     func inspect(path: String) async -> DeepInspectionResult {

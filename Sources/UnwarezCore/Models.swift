@@ -32,12 +32,17 @@ public struct ScanSummary: Sendable, Codable {
     public let detected: Int
     public let unverified: Int
     public let quarantined: Int
+    /// Absolute path to this scan's report .txt file - callers that want
+    /// to export it (e.g. the CLI's CSV/PDF export) don't otherwise have
+    /// a way to know the exact timestamped filename the pipeline used.
+    public let reportPath: String
 
-    public init(scanned: Int, detected: Int, unverified: Int, quarantined: Int) {
+    public init(scanned: Int, detected: Int, unverified: Int, quarantined: Int, reportPath: String) {
         self.scanned = scanned
         self.detected = detected
         self.unverified = unverified
         self.quarantined = quarantined
+        self.reportPath = reportPath
     }
 }
 
