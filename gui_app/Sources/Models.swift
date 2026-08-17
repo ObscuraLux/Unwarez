@@ -2,6 +2,7 @@ import Foundation
 
 enum FileStatus: String {
     case malicious = "MALICIOUS"
+    case pup = "PUP"
     case verified = "VERIFIED"
     case unverified = "UNVERIFIED"
 }

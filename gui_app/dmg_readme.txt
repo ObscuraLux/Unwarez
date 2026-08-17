@@ -1,4 +1,4 @@
-WolfCare Malware Scanner v1.6.2 - Setup Guide
+WolfCare Malware Scanner v1.6.3 - Setup Guide
 ==========================================================
 
 This app works right away with zero setup - every scan already runs
@@ -208,9 +208,16 @@ don't prove the whole archive is safe.
 
 
 Scan runs using: ReleaseSeal + CIRCL + the built-in 167-hash list.
-Files get one of three results:
+Files get one of four results:
   VERIFIED    - confirmed clean by a real database
   MALICIOUS   - matched a known-bad hash, auto-quarantined
+  PUP         - Potentially Unwanted Program (VirusTotal only, needs
+                 a VT key set up above). Shown in orange, not red.
+                 Some antivirus engines flag this - typically for a
+                 bundled toolbar, adware installer, or similar - but
+                 it isn't confirmed malware the way MALICIOUS is.
+                 Still auto-quarantined for your review; if you decide
+                 it's fine, use "Mark as Safe" in the Quarantine tab.
   UNVERIFIED  - genuinely unknown either way (this is common and
                  not itself a red flag - it just means "not found,"
                  not "found and safe")

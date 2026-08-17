@@ -112,7 +112,7 @@ struct QuarantineView: View {
                     .truncationMode(.middle)
                 Text("\(entry.reason) · \(entry.timestamp)")
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(entry.reason == "PUP" ? Color.orange : Color.secondary)
             }
 
             Spacer()

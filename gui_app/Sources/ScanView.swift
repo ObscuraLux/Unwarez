@@ -161,6 +161,12 @@ struct ScanView: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
 
+                if engine.results.contains(where: { $0.status == .pup }) {
+                    Text("PUP = Potentially Unwanted Program. Flagged by some antivirus engines - typically for a bundled toolbar, adware installer, or similar - but not confirmed as actual malware. Still quarantined for your review, but shown separately from a confirmed threat.")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                }
+
                 if !engine.isScanning, summary.detected > 0, !flaggedPaths.isEmpty {
                     Button {
                         engine.rescanFlagged(paths: flaggedPaths)
@@ -197,7 +203,7 @@ struct ScanView: View {
     }
 
     private var flaggedPaths: [String] {
-        engine.results.filter { $0.status == .malicious && !$0.path.isEmpty }.map { $0.path }
+        engine.results.filter { ($0.status == .malicious || $0.status == .pup) && !$0.path.isEmpty }.map { $0.path }
     }
 
     private func chooseFolder() {
@@ -226,6 +232,13 @@ struct ScanView: View {
         case .malicious:
             Label("Malicious", systemImage: "exclamationmark.triangle.fill")
                 .foregroundStyle(.red)
+        case .pup:
+            // Potentially Unwanted Program - flagged by some antivirus
+            // engines (typically for bundled adware/toolbars) but not
+            // confirmed as actual malware. Orange, distinct from the
+            // red used for a confirmed MALICIOUS verdict.
+            Label("PUP", systemImage: "exclamationmark.triangle")
+                .foregroundStyle(.orange)
         case .verified:
             Label("Verified", systemImage: "checkmark.circle.fill")
                 .foregroundStyle(.green)

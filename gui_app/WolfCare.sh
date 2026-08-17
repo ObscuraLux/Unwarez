@@ -135,9 +135,11 @@ set_theme_colors() {
     if [ "$THEME" = "light" ]; then
         RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[0;33m'
         BLUE='\033[0;34m'; CYAN='\033[0;36m'; NC='\033[0m'
+        ORANGE='\033[38;5;208m'
     else
         RED='\033[1;31m'; GREEN='\033[1;32m'; YELLOW='\033[1;33m'
         BLUE='\033[1;34m'; CYAN='\033[1;36m'; NC='\033[0m'
+        ORANGE='\033[38;5;208m'
     fi
 }
 set_theme_colors
@@ -1071,6 +1073,30 @@ check_virustotal_hash() {
             if [ -z "$malicious" ]; then
                 echo "UNKNOWN"; return 1
             elif [ "$malicious" -gt 0 ]; then
+                # PUP vs real malware: if every engine that flagged this
+                # used a PUP/PUA/"unwanted"-style signature name (e.g.
+                # "MacOS:TNT-A [PUP]"), it's a bundled/adware-style flag,
+                # not confirmed malware - report it distinctly rather
+                # than as full MALICIOUS. Any engine using a non-PUP-
+                # looking name (a real trojan/backdoor family, etc.)
+                # keeps this as MALICIOUS - conservative on purpose.
+                local flag_sigs is_pup sig
+                flag_sigs=$(echo "$body" | jq -r '.data.attributes.last_analysis_results[]? | select(.category=="malicious") | .result' 2>/dev/null)
+                is_pup=1
+                if [ -z "$flag_sigs" ]; then
+                    is_pup=0
+                else
+                    while IFS= read -r sig; do
+                        [ -z "$sig" ] && continue
+                        if ! echo "$sig" | grep -qiE 'pup|pua|unwanted'; then
+                            is_pup=0
+                            break
+                        fi
+                    done <<< "$flag_sigs"
+                fi
+                if [ "$is_pup" -eq 1 ]; then
+                    echo "PUP:$malicious"; return 2
+                fi
                 echo "MALICIOUS:$malicious"; return 2
             else
                 echo "CLEAN"; return 0
@@ -1481,13 +1507,28 @@ run_scan() {
             deep_status=$(inspect_deep_contents "$file")
         fi
 
-        if [ "$rs_status" = "COMPROMISED" ] || [[ "$vt_status" == MALICIOUS:* ]] || [ -n "$kb_match" ] || [[ "$mb_status" == MALICIOUS:* ]] || [[ "$clamav_status" == INFECTED:* ]] || [[ "$deep_status" == MALICIOUS:* ]]; then
-            echo -e "${RED}    [!] CRITICAL: flagged malicious (RS=$rs_status VT=$vt_status MB=$mb_status CLAMAV=$clamav_status${deep_status:+ DEEP=$deep_status}${kb_match:+ THREAT-INTEL=$kb_match})${NC}"
-            echo "  [!] MALICIOUS: $file | $sha | RS=$rs_status VT=$vt_status MB=$mb_status CLAMAV=$clamav_status${deep_status:+ DEEP=$deep_status}${kb_match:+ THREAT-INTEL=$kb_match}" >> "$REPORT"
+        # PUP only when VirusTotal's PUP-style flag is the SOLE reason -
+        # any other independent source (local list, MalwareBazaar,
+        # ClamAV, deep inspection, ReleaseSeal) keeps the full MALICIOUS
+        # verdict, since those are specific/curated, not general AV
+        # noise the way a single PUP-labeled engine can be.
+        verdict_label="MALICIOUS"
+        if [[ "$vt_status" == PUP:* ]] && [ "$rs_status" != "COMPROMISED" ] && [ -z "$kb_match" ] && \
+           [[ "$mb_status" != MALICIOUS:* ]] && [[ "$clamav_status" != INFECTED:* ]] && [[ "$deep_status" != MALICIOUS:* ]]; then
+            verdict_label="PUP"
+        fi
+
+        if [ "$rs_status" = "COMPROMISED" ] || [[ "$vt_status" == MALICIOUS:* ]] || [[ "$vt_status" == PUP:* ]] || [ -n "$kb_match" ] || [[ "$mb_status" == MALICIOUS:* ]] || [[ "$clamav_status" == INFECTED:* ]] || [[ "$deep_status" == MALICIOUS:* ]]; then
+            if [ "$verdict_label" = "PUP" ]; then
+                echo -e "${ORANGE}    [!] PUP: potentially unwanted, not confirmed malicious (VT=$vt_status)${NC}"
+            else
+                echo -e "${RED}    [!] CRITICAL: flagged malicious (RS=$rs_status VT=$vt_status MB=$mb_status CLAMAV=$clamav_status${deep_status:+ DEEP=$deep_status}${kb_match:+ THREAT-INTEL=$kb_match})${NC}"
+            fi
+            echo "  [!] $verdict_label: $file | $sha | RS=$rs_status VT=$vt_status MB=$mb_status CLAMAV=$clamav_status${deep_status:+ DEEP=$deep_status}${kb_match:+ THREAT-INTEL=$kb_match}" >> "$REPORT"
             qname="${sha:0:12}_${name}"
             cp -R "$file" "$QUARANTINE/files/$qname" 2>/dev/null
-            echo "$(date +%Y%m%d_%H%M%S)|$file|$qname|$sha|MALICIOUS" >> "$MANIFEST"
-            echo "${sha}|${md5}|$name|$size|MALICIOUS" >> "$QUARANTINE/hashes/hashes.txt"
+            echo "$(date +%Y%m%d_%H%M%S)|$file|$qname|$sha|$verdict_label" >> "$MANIFEST"
+            echo "${sha}|${md5}|$name|$size|$verdict_label" >> "$QUARANTINE/hashes/hashes.txt"
             DETECTED=$((DETECTED + 1)); QUARANTINED=$((QUARANTINED + 1))
             echo -e "${GREEN}    [v] AUTO-QUARANTINED (restorable from Quarantine menu)${NC}"
             gui_detail="flagged malicious"
@@ -1501,11 +1542,13 @@ run_scan() {
                 gui_detail="Deep scan: ${deep_status#MALICIOUS:}"
             elif [ "$rs_status" = "COMPROMISED" ]; then
                 gui_detail="ReleaseSeal: compromised"
+            elif [[ "$vt_status" == PUP:* ]]; then
+                gui_detail="VirusTotal (PUP): ${vt_status#PUP:}"
             elif [[ "$vt_status" == MALICIOUS:* ]]; then
                 gui_detail="VirusTotal: ${vt_status#MALICIOUS:}"
             fi
-            [ "$GUI_MODE" -eq 1 ] && printf 'GUI\x1fFILE\x1f%s\x1fMALICIOUS\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\n' \
-                "$SCAN_COUNT" "$name" "$sha" "$file_size_kb" "$gui_detail" "$file"
+            [ "$GUI_MODE" -eq 1 ] && printf 'GUI\x1fFILE\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\n' \
+                "$SCAN_COUNT" "$verdict_label" "$name" "$sha" "$file_size_kb" "$gui_detail" "$file"
         elif [ "$rs_status" = "VERIFIED" ] || [ "$vt_status" = "CLEAN" ] || [ "$circl_status" = "KNOWN_GOOD" ]; then
             echo -e "${GREEN}    [v] Verified clean (RS=$rs_status VT=$vt_status CIRCL=$circl_status)${NC}"
             [ "$sig_status" != "N/A" ] && echo -e "${BLUE}    [i] Code signature: $sig_status${NC}"
