@@ -221,26 +221,42 @@ stderr on failure instead.
 
 ## Open work
 
-**Sidebar logo.** Attempted twice, removed both times — first
-invisible, then overlapping the nav text. The asset has a black
-background that resists automated cutout because the wolf silhouette
-and background are both near-black and intertwined. Would need a
-manually prepared transparent PNG.
-
-**Interactive click-through of the Full Disk Access notice and
-Scheduled Scans tab.** Both were verified at the mechanism level (TCC
-probe, crontab read/write - see Testing status) but not by actually
-clicking around a running app window. Lower risk than it sounds given
-that level of verification, but still genuinely unclicked.
+Nothing currently tracked here. See "Resolved this session" below for
+what was just closed out, and "Bugs found the hard way" for traps not
+to reintroduce.
 
 ### Resolved this session (kept here briefly for context, not re-open)
 
-Multi-format archive support, Keychain-backed API keys, and the
-Scheduled Scans tab's underlying crontab logic - all previously listed
-here as open work - are done; see Testing status above for what was
-verified and "Bugs found the hard way" for what broke along the way
-(notably the `timeout` portability bug, found while doing the archive
-work).
+- Multi-format archive support, Keychain-backed API keys, and the
+  Scheduled Scans tab's underlying crontab logic - see Testing status
+  above for what was verified and "Bugs found the hard way" for what
+  broke along the way (notably the `timeout` portability bug, found
+  while doing the archive work).
+- **Logo.** The earlier "sidebar logo" attempts were stuck on an asset
+  with a black background that resisted automated cutout. A
+  user-provided, already-correctly-cut-out transparent PNG
+  (`wolf_logo.png`) is now placed top-right of the window instead
+  (`.topTrailing` overlay on the `NavigationSplitView`, `.allowsHitTesting(false)`
+  per the "Hit testing" bug below). Verified against the real installed
+  app: clicked through all 5 sidebar tabs with it present, no missed
+  clicks, no crash.
+- **Settings tab crash.** `SettingsStore.init()` called `load()`,
+  which - after the Keychain migration - spawns a subprocess
+  synchronously. An `@StateObject`'s `init()` runs during the view's
+  first layout pass, and blocking subprocess work there crashes
+  SwiftUI's AttributeGraph (`SIGABRT`, confirmed via real crash logs).
+  Fixed by loading from `.onAppear` instead, matching the pattern
+  `CronStore`/`ScheduleView` already used for the same reason.
+- **Logs tab.** Per-scan reports (`$QUARANTINE/reports/*.txt`) were
+  already written by the bash backend but only reachable via Finder.
+  Added a Logs tab (`LogsStore`/`LogsView`) to browse, view, and reveal
+  them from the GUI.
+- **Scan-complete alert.** `ScanEngine` now flags completion; `ScanView`
+  shows a modal alert before the already-visible results table.
+- **Individual file scanning.** The bash backend has supported
+  `--target=5` (single file) from before this repo's history starts,
+  but the Swift `ScanTarget` enum never included it, so the option
+  never appeared in the GUI. Restored.
 
 ---
 
