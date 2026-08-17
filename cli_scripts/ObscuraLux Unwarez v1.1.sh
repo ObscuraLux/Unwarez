@@ -820,7 +820,7 @@ inspect_pkg_contents() {
     local payload_file expanded_payload inner_file inner_sha inner_result count=0
     while IFS= read -r -d '' payload_file; do
         expanded_payload=$(mktemp -d) || continue
-        if run_timeout 60 bash -c "gunzip -dc '$payload_file' 2>/dev/null | (cd '$expanded_payload' && cpio -i --quiet 2>/dev/null)"; then
+        if run_timeout 60 bash -c 'gunzip -dc "$1" 2>/dev/null | (cd "$2" && cpio -i --quiet 2>/dev/null)' _ "$payload_file" "$expanded_payload"; then
             # Zip-bomb guard, matching inspect_zip_contents/inspect_unar_contents -
             # a hostile payload could otherwise expand unbounded within the
             # time budget above.
