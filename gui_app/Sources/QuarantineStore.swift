@@ -26,6 +26,9 @@ final class QuarantineStore: ObservableObject {
     private var filesDir: String {
         quarantineDir + "/files"
     }
+    private var allowlistPath: String {
+        quarantineDir + "/allowlist.txt"
+    }
 
     init() {
         load()
@@ -76,6 +79,34 @@ final class QuarantineStore: ObservableObject {
     /// quarantine, but may since have been deleted/moved by the user).
     func quarantinedPath(for entry: QuarantineEntry) -> String {
         filesDir + "/" + entry.quarantinedName
+    }
+
+    /// Removes an entry from the quarantine list WITHOUT deleting the
+    /// quarantined copy, and - unlike just deleting the manifest line -
+    /// adds the hash to a persistent allowlist the bash backend checks
+    /// before every other detection layer, so this exact file is never
+    /// re-flagged on a future scan. For a confirmed false positive
+    /// (e.g. a PUP - potentially unwanted, but not actually malicious).
+    func markSafe(_ entry: QuarantineEntry) {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        let label = "marked safe by user on \(formatter.string(from: Date())) (was: \(entry.reason))"
+        let line = "\(entry.sha256)|\(label)\n"
+        do {
+            try FileManager.default.createDirectory(atPath: quarantineDir, withIntermediateDirectories: true)
+            if let handle = FileHandle(forWritingAtPath: allowlistPath) {
+                handle.seekToEndOfFile()
+                handle.write(line.data(using: .utf8) ?? Data())
+                handle.closeFile()
+            } else {
+                try line.write(toFile: allowlistPath, atomically: true, encoding: .utf8)
+            }
+            removeFromManifest(entry)
+            load()
+            message = "Marked safe - won't be flagged again, and the quarantined copy was kept (not deleted)."
+        } catch {
+            message = "Could not update the allowlist: \(error.localizedDescription)"
+        }
     }
 
     func delete(_ entry: QuarantineEntry) {

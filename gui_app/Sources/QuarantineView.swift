@@ -5,6 +5,7 @@ struct QuarantineView: View {
     @Binding var selection: SidebarItem?
     @StateObject private var store = QuarantineStore()
     @State private var pendingDelete: QuarantineEntry?
+    @State private var pendingMarkSafe: QuarantineEntry?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -76,6 +77,27 @@ struct QuarantineView: View {
                 pendingDelete = nil
             }
         }
+        .confirmationDialog(
+            "Are you sure this is safe?",
+            isPresented: Binding(
+                get: { pendingMarkSafe != nil },
+                set: { if !$0 { pendingMarkSafe = nil } }
+            )
+        ) {
+            Button("Yes") {
+                if let entry = pendingMarkSafe {
+                    store.markSafe(entry)
+                }
+                pendingMarkSafe = nil
+            }
+            Button("No", role: .cancel) {
+                pendingMarkSafe = nil
+            }
+        } message: {
+            if let entry = pendingMarkSafe {
+                Text("\((entry.originalPath as NSString).lastPathComponent) will no longer be flagged by future scans, but the quarantined copy is kept - not deleted. Only do this for files you've personally verified, like a PUP (potentially unwanted, but not actually malicious) you've decided to keep.")
+            }
+        }
     }
 
     private func quarantineRow(_ entry: QuarantineEntry) -> some View {
@@ -105,6 +127,12 @@ struct QuarantineView: View {
                 store.restore(entry)
             }
             .buttonStyle(.bordered)
+
+            Button("Mark as Safe") {
+                pendingMarkSafe = entry
+            }
+            .buttonStyle(.bordered)
+            .tint(.green)
 
             Button("Delete") {
                 pendingDelete = entry
