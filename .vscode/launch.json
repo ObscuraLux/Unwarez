@@ -1,0 +1,44 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Unwarez}",
+            "name": "Debug unwarez-cli",
+            "target": "unwarez-cli",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug unwarez-cli"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Unwarez}",
+            "name": "Release unwarez-cli",
+            "target": "unwarez-cli",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release unwarez-cli"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Unwarez}",
+            "name": "Debug ObscuraLuxUnwarezGUI",
+            "target": "ObscuraLuxUnwarezGUI",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug ObscuraLuxUnwarezGUI"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Unwarez}",
+            "name": "Release ObscuraLuxUnwarezGUI",
+            "target": "ObscuraLuxUnwarezGUI",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release ObscuraLuxUnwarezGUI"
+        }
+    ]
+}
