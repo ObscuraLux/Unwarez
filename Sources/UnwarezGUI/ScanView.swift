@@ -4,9 +4,11 @@ import UnwarezCore
 
 struct ScanView: View {
     @ObservedObject var engine: ScanEngine
+    @Binding var selection: SidebarItem?
     @State private var selectedTarget: ScanTarget = .downloads
     @State private var customPath: String = ""
     @State private var showingFullSystemConfirm = false
+    @State private var showingNoKeysConfirm = false
     @State private var hasFullDiskAccess: Bool = FullDiskAccess.isGranted()
 
     var body: some View {
@@ -97,11 +99,7 @@ struct ScanView: View {
                     }
                 } else {
                     Button {
-                        if selectedTarget == .fullSystem {
-                            showingFullSystemConfirm = true
-                        } else {
-                            engine.startScan(target: selectedTarget, customPath: customPath)
-                        }
+                        requestStartScan()
                     } label: {
                         Label("Start Scan", systemImage: "play.fill")
                     }
@@ -215,6 +213,18 @@ struct ScanView: View {
             }
             Button("Cancel", role: .cancel) {}
         }
+        .confirmationDialog(
+            "No VirusTotal or MalwareBazaar API key is configured. Scans still check ReleaseSeal, CIRCL, the built-in threat-intel list, and ClamAV, but skip these two extra sources without a key.",
+            isPresented: $showingNoKeysConfirm
+        ) {
+            Button("Add a Key Now") {
+                selection = .settings
+            }
+            Button("Scan Without a Key") {
+                proceedToScan()
+            }
+            Button("Cancel", role: .cancel) {}
+        }
         .alert("Scan Complete", isPresented: $engine.showCompletionAlert) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -264,6 +274,25 @@ struct ScanView: View {
 
     private var flaggedPaths: [String] {
         engine.results.filter { ($0.status == .malicious || $0.status == .pup) && !$0.path.isEmpty }.map { $0.path }
+    }
+
+    /// Entry point for the Start Scan button - asks about API keys first
+    /// (if neither is configured) before falling through to the existing
+    /// full-system confirmation/direct-start flow in `proceedToScan()`.
+    private func requestStartScan() {
+        guard ConfigStore.virusTotalKey() == nil, ConfigStore.malwareBazaarKey() == nil else {
+            proceedToScan()
+            return
+        }
+        showingNoKeysConfirm = true
+    }
+
+    private func proceedToScan() {
+        if selectedTarget == .fullSystem {
+            showingFullSystemConfirm = true
+        } else {
+            engine.startScan(target: selectedTarget, customPath: customPath)
+        }
     }
 
     private func chooseFolder() {

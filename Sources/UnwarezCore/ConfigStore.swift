@@ -65,6 +65,9 @@ public enum ConfigStore {
     public static func virusTotalKey() -> String? { KeychainStore.get(account: virusTotalAccount) }
     public static func malwareBazaarKey() -> String? { KeychainStore.get(account: malwareBazaarAccount) }
 
+    public static func virusTotalKeyStatus() -> KeychainReadResult { KeychainStore.getResult(account: virusTotalAccount) }
+    public static func malwareBazaarKeyStatus() -> KeychainReadResult { KeychainStore.getResult(account: malwareBazaarAccount) }
+
     @discardableResult
     public static func setVirusTotalKey(_ value: String) -> Result<Void, KeychainError> {
         KeychainStore.set(account: virusTotalAccount, value: value)

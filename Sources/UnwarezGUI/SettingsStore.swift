@@ -11,6 +11,8 @@ final class SettingsStore: ObservableObject {
     @Published var mbApiKey: String = ""
     @Published var alertEmail: String = ""
     @Published var saveMessage: String?
+    @Published var vtKeychainAccessDenied: Bool = false
+    @Published var mbKeychainAccessDenied: Bool = false
 
     // Preserved as-is even though the GUI doesn't expose it, so we never
     // clobber a theme preference set via the CLI version.
@@ -27,8 +29,17 @@ final class SettingsStore: ObservableObject {
         let config = ConfigStore.load()
         theme = config.theme
         alertEmail = config.alertEmail
-        vtApiKey = ConfigStore.virusTotalKey() ?? ""
-        mbApiKey = ConfigStore.malwareBazaarKey() ?? ""
+
+        switch ConfigStore.virusTotalKeyStatus() {
+        case .found(let value): vtApiKey = value; vtKeychainAccessDenied = false
+        case .notFound: vtApiKey = ""; vtKeychainAccessDenied = false
+        case .accessDenied: vtApiKey = ""; vtKeychainAccessDenied = true
+        }
+        switch ConfigStore.malwareBazaarKeyStatus() {
+        case .found(let value): mbApiKey = value; mbKeychainAccessDenied = false
+        case .notFound: mbApiKey = ""; mbKeychainAccessDenied = false
+        case .accessDenied: mbApiKey = ""; mbKeychainAccessDenied = true
+        }
     }
 
     func save() {

@@ -64,7 +64,7 @@ struct ContentView: View {
             Group {
                 switch selection {
                 case .scan:
-                    ScanView(engine: scanEngine)
+                    ScanView(engine: scanEngine, selection: $selection)
                 case .quarantine:
                     QuarantineView(engine: scanEngine, selection: $selection)
                 case .logs:

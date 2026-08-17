@@ -20,6 +20,9 @@ struct SettingsView: View {
                     .frame(maxWidth: 320)
                 Link("Get a free key", destination: URL(string: "https://www.virustotal.com/gui/join-us")!)
                     .font(.caption)
+                if store.vtKeychainAccessDenied {
+                    keychainAccessDeniedWarning
+                }
             }
 
             VStack(alignment: .leading, spacing: 6) {
@@ -29,6 +32,9 @@ struct SettingsView: View {
                     .frame(maxWidth: 320)
                 Link("Get a free key", destination: URL(string: "https://auth.abuse.ch/")!)
                     .font(.caption)
+                if store.mbKeychainAccessDenied {
+                    keychainAccessDeniedWarning
+                }
             }
 
             VStack(alignment: .leading, spacing: 6) {
@@ -59,5 +65,18 @@ struct SettingsView: View {
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear { store.load() }
+    }
+
+    /// A previously-saved key exists in the Keychain but couldn't be read
+    /// back - most likely this build's ad-hoc code signature no longer
+    /// matches the one the item's access control was created under (ad-
+    /// hoc signatures aren't stable across rebuilds the way a real
+    /// Developer ID is), so macOS is refusing silent access. Re-entering
+    /// and saving the key re-creates it under the current signature.
+    private var keychainAccessDeniedWarning: some View {
+        Label("Saved in Keychain, but this build can't read it back (likely a signature mismatch after a rebuild). Re-enter and save to fix.", systemImage: "exclamationmark.triangle.fill")
+            .font(.caption)
+            .foregroundStyle(.red)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }

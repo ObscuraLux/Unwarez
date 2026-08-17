@@ -89,6 +89,18 @@ enum InteractiveMenu {
         }
 
         guard let target else { return }
+
+        if ConfigStore.virusTotalKey() == nil, ConfigStore.malwareBazaarKey() == nil {
+            print("")
+            print("\(Terminal.yellow)No VirusTotal or MalwareBazaar API key is configured.\(Terminal.reset)")
+            print("Scans still check ReleaseSeal, CIRCL, the built-in threat-intel list, and ClamAV,")
+            print("but skip these two extra sources without a key.")
+            if Terminal.prompt("Add a key now instead of scanning? [y/N]: ").lowercased().hasPrefix("y") {
+                await settingsMenu()
+                return
+            }
+        }
+
         print("")
         print("\(Terminal.blue)[*] Initializing scan...\(Terminal.reset)")
         let options = ScanOptions(target: target, customPath: customPath, isAutoMode: false)
@@ -226,10 +238,8 @@ enum InteractiveMenu {
             print("Settings")
             print(String(repeating: "=", count: 40))
             let config = ConfigStore.load()
-            let vtKey = ConfigStore.virusTotalKey() ?? ""
-            let mbKey = ConfigStore.malwareBazaarKey() ?? ""
-            print("  VirusTotal API key:    \(vtKey.isEmpty ? "(not set)" : "set (\(vtKey.count) chars)")")
-            print("  MalwareBazaar API key: \(mbKey.isEmpty ? "(not set)" : "set (\(mbKey.count) chars)")")
+            print("  VirusTotal API key:    \(keyStatusDescription(ConfigStore.virusTotalKeyStatus()))")
+            print("  MalwareBazaar API key: \(keyStatusDescription(ConfigStore.malwareBazaarKeyStatus()))")
             print("  Alert email:           \(config.alertEmail.isEmpty ? "(not set)" : config.alertEmail)")
             print("  ClamAV:                \(ClamAVScanner.findBinary() != nil ? "installed" : "not installed (brew install clamav)")")
             print("")
@@ -268,6 +278,20 @@ enum InteractiveMenu {
                 print("\(Terminal.yellow)Invalid selection\(Terminal.reset)")
                 Terminal.pause()
             }
+        }
+    }
+
+    /// Distinguishes "never set" from "saved, but this build can't read it
+    /// back" (most likely an ad-hoc signature mismatch after a rebuild -
+    /// ad-hoc signatures aren't stable across builds the way a real
+    /// Developer ID is, so macOS can refuse silent access to an item
+    /// created under a previous build's signature) - these need different
+    /// fixes, so collapsing both to "(not set)" would be misleading.
+    private static func keyStatusDescription(_ status: KeychainReadResult) -> String {
+        switch status {
+        case .found(let value): return "set (\(value.count) chars)"
+        case .notFound: return "(not set)"
+        case .accessDenied: return "\(Terminal.red)saved, but can't be read back (Keychain access denied - re-enter it)\(Terminal.reset)"
         }
     }
 
