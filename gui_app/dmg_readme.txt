@@ -1,4 +1,4 @@
-WolfCare Malware Scanner v1.6 - Setup Guide
+WolfCare Malware Scanner v1.6.1 - Setup Guide
 ==========================================================
 
 This app works right away with zero setup - every scan already runs
