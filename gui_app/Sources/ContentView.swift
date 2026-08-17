@@ -58,7 +58,7 @@ struct ContentView: View {
                 case .scan:
                     ScanView(engine: scanEngine)
                 case .quarantine:
-                    QuarantineView()
+                    QuarantineView(engine: scanEngine, selection: $selection)
                 case .logs:
                     LogsView()
                 case .settings:

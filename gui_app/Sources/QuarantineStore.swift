@@ -71,6 +71,13 @@ final class QuarantineStore: ObservableObject {
         }
     }
 
+    /// Path to the quarantined copy - the file that actually still
+    /// exists in every case (originals are copied, not moved, into
+    /// quarantine, but may since have been deleted/moved by the user).
+    func quarantinedPath(for entry: QuarantineEntry) -> String {
+        filesDir + "/" + entry.quarantinedName
+    }
+
     func delete(_ entry: QuarantineEntry) {
         let quarantinedPath = filesDir + "/" + entry.quarantinedName
         try? FileManager.default.removeItem(atPath: quarantinedPath)

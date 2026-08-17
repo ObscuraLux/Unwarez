@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct QuarantineView: View {
+    @ObservedObject var engine: ScanEngine
+    @Binding var selection: SidebarItem?
     @StateObject private var store = QuarantineStore()
     @State private var pendingDelete: QuarantineEntry?
 
@@ -15,7 +17,18 @@ struct QuarantineView: View {
                 } label: {
                     Label("Refresh", systemImage: "arrow.clockwise")
                 }
+                Button {
+                    rescanAll()
+                } label: {
+                    Label("Re-scan All", systemImage: "arrow.clockwise.circle")
+                }
+                .disabled(store.entries.isEmpty || engine.isScanning)
             }
+
+            Text("Re-scanning checks the quarantined copies again against current results - useful after a detection source is fixed or its data updates, to confirm something quarantined earlier is still (or no longer) flagged.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
 
             if let message = store.message {
                 Text(message)
@@ -82,6 +95,12 @@ struct QuarantineView: View {
 
             Spacer()
 
+            Button("Re-scan") {
+                rescan(entry)
+            }
+            .buttonStyle(.bordered)
+            .disabled(engine.isScanning)
+
             Button("Restore") {
                 store.restore(entry)
             }
@@ -96,5 +115,21 @@ struct QuarantineView: View {
         .padding(10)
         .background(Color.gray.opacity(0.08))
         .cornerRadius(8)
+    }
+
+    // Re-scans the quarantined COPY, not the original path - the copy
+    // is guaranteed to still exist (originals are copied, not moved,
+    // into quarantine, but may since have been deleted/moved by the
+    // user). Jumps to the Scan tab so progress/results are visible,
+    // same as starting any other scan.
+    private func rescan(_ entry: QuarantineEntry) {
+        selection = .scan
+        engine.rescanFlagged(paths: [store.quarantinedPath(for: entry)])
+    }
+
+    private func rescanAll() {
+        guard !store.entries.isEmpty else { return }
+        selection = .scan
+        engine.rescanFlagged(paths: store.entries.map { store.quarantinedPath(for: $0) })
     }
 }
