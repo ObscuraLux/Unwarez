@@ -31,9 +31,14 @@ final class SettingsStore: ObservableObject {
         (configPath as NSString).lastPathComponent
     }
 
-    init() {
-        load()
-    }
+    // Deliberately does NOT load in init(). load() spawns a subprocess
+    // (`security`) synchronously, and an @StateObject's init() runs
+    // during the view's first layout pass - doing blocking subprocess
+    // work there corrupts SwiftUI's AttributeGraph and crashes with
+    // SIGABRT (AG::Graph::value_set precondition failure), reproduced
+    // via a real crash log. CronStore has the same shape (crontab -l is
+    // also a subprocess) and avoids this the same way: load from the
+    // view's .onAppear, after layout has settled, not from init().
 
     func load() {
         var legacyVT = ""
