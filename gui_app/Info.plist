@@ -9,9 +9,9 @@
     <key>CFBundleIdentifier</key>
     <string>com.wolfcare.malwarescanner.gui</string>
     <key>CFBundleName</key>
-    <string>WolfCare Malware Scanner v1.6.3</string>
+    <string>WolfCare Malware Scanner</string>
     <key>CFBundleDisplayName</key>
-    <string>WolfCare Malware Scanner v1.6.3</string>
+    <string>WolfCare Malware Scanner</string>
     <key>CFBundleVersion</key>
     <string>1.6.3</string>
     <key>CFBundleShortVersionString</key>

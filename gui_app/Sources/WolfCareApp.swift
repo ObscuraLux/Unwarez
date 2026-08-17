@@ -15,12 +15,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 struct WolfCareApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
+    // CFBundleName/CFBundleDisplayName in Info.plist are deliberately
+    // versionless - that's what drives the system menu bar's app name
+    // (top of screen, next to the Apple logo), which shouldn't need
+    // updating every version bump. The window's own title bar is set
+    // explicitly here instead, reading CFBundleShortVersionString so
+    // there's still only one place (Info.plist) to update per release.
+    private var windowTitle: String {
+        guard let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
+              !version.isEmpty else {
+            return "WolfCare Malware Scanner"
+        }
+        return "WolfCare Malware Scanner v\(version)"
+    }
+
     var body: some Scene {
         // .defaultSize needs macOS 13+ and was dropped for the 12.0
         // floor - .frame's minWidth/minHeight (10.15+) still keeps the
         // window at a sane size, just without a specific larger
         // preferred initial size.
-        WindowGroup {
+        WindowGroup(windowTitle) {
             ContentView()
                 .frame(minWidth: 850, minHeight: 550)
         }
