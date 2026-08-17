@@ -1,10 +1,14 @@
 #!/bin/bash
-# Builds WolfCare Malware Scanner v1.5.app from the Swift sources in
+# Builds WolfCare Malware Scanner.app from the Swift sources in
 # Sources/, bundling the tested bash scanner (WolfCare.sh) as its backend.
 set -e
 
 APP_NAME="WolfCareGUI"
-BUNDLE_NAME="WolfCare Malware Scanner v1.5.app"
+# Deliberately versionless - CFBundleName/CFBundleDisplayName in
+# Info.plist carry the version (shown in the title bar and menu bar),
+# so bumping a version doesn't require renaming the installed .app or
+# breaking a Dock/Applications shortcut to it.
+BUNDLE_NAME="WolfCare Malware Scanner.app"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_DIR="$SCRIPT_DIR/build"
 

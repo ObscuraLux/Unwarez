@@ -1,4 +1,4 @@
-WolfCare Malware Scanner v1.5 - Setup Guide
+WolfCare Malware Scanner v1.6 - Setup Guide
 ==========================================================
 
 This app works right away with zero setup - every scan already runs
@@ -15,7 +15,7 @@ or as little as you want - the app won't nag you either way.
 Since this app isn't signed with a paid Apple Developer certificate,
 macOS will block it the first time you open it.
 
-  Right-click "WolfCare Malware Scanner v1.5" in Applications -> Open
+  Right-click "WolfCare Malware Scanner" in Applications -> Open
   -> confirm.
 
 That's it. macOS remembers your choice after this.
@@ -38,7 +38,7 @@ HOW TO ADD IT:
   1. Open System Settings
   2. Go to Privacy & Security -> Full Disk Access
   3. Click the + button
-  4. Navigate to Applications and select "WolfCare Malware Scanner v1.5"
+  4. Navigate to Applications and select "WolfCare Malware Scanner"
   5. Make sure the toggle next to it is switched on
   6. Quit and reopen the app for the change to take effect
 
