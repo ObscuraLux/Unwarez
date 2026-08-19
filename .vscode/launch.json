@@ -39,6 +39,26 @@
             "target": "ObscuraLuxUnwarezGUI",
             "configuration": "release",
             "preLaunchTask": "swift: Build Release ObscuraLuxUnwarezGUI"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Unwarez}",
+            "name": "Debug unwarez-selftest",
+            "target": "unwarez-selftest",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug unwarez-selftest"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Unwarez}",
+            "name": "Release unwarez-selftest",
+            "target": "unwarez-selftest",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release unwarez-selftest"
         }
     ]
 }
